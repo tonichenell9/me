@@ -387,7 +387,7 @@ The script automatically tries xlwings first and falls back if it's not availabl
 
 ### "Email authentication failed"
 
-**Problem:** Cannot connect to email server.
+**Problem:** Connection to email server fails.
 
 **Solutions:**
 - **For Gmail**: Make sure you're using an App Password, not your regular password
@@ -485,6 +485,7 @@ The script automatically tries xlwings first and falls back if it's not availabl
 ```
 python/
 ├── large_deal_report_automation.py  # Main automation script
+├── merge_corporate_actions.py        # Corporate actions merge tool
 ├── email_handler.py                  # Email retrieval and sending module
 ├── excel_processor.py                # Excel manipulation module
 ├── config.json                       # Your configuration (create from example)
@@ -680,3 +681,36 @@ This script is provided as-is for internal use.
 ## Version History
 
 - **v1.0**: Initial implementation with modular design, xlwings support, and comprehensive error handling
+
+---
+
+## Corporate Actions Merge Utility
+
+A separate utility `merge_corporate_actions.py` is included to merge and align corporate actions data from two Excel spreadsheets.
+
+### Features
+- Merges data from two Excel files with different column naming conventions (Sentence case vs Uppercase).
+- Standardizes column names to Uppercase.
+- Extracts specific columns in a defined order:
+  `ISSUE NAME`, `SEDOL`, `ISIN`, `ISSUE COUNTRY NAME`, `STRATEGY`, `SUB STRATEGY`, `FUND TYPE`, `FUND NAME`.
+- Sorts data hierarchically.
+- Applies "Merge and Center" formatting to group identical values, respecting the hierarchy:
+  - `ISSUE NAME` acts as the primary grouping scope.
+  - `SEDOL` acts as a secondary grouping scope.
+  - `ISIN` is treated as a detail level (non-scoping).
+  - Other attributes (`ISSUE COUNTRY NAME`, `STRATEGY`, etc.) are merged if they are identical within the scope of the `ISSUE NAME` (and `SEDOL`).
+
+### Usage
+
+```bash
+python merge_corporate_actions.py <file1.xlsx> <file2.xlsx> <output.xlsx>
+```
+
+**Example:**
+```bash
+python merge_corporate_actions.py corporate_actions_v1.xlsx corporate_actions_v2.xlsx merged_output.xlsx
+```
+
+### Requirements
+- `pandas`
+- `openpyxl`
