@@ -7,6 +7,7 @@ Handles Excel file manipulation, worksheet updates, refresh operations, and copy
 import logging
 from pathlib import Path
 from typing import Optional
+import time
 import openpyxl
 from openpyxl import load_workbook
 
@@ -59,6 +60,119 @@ class ExcelProcessor:
             raise FileNotFoundError(f"Workbook not found: {filepath}")
         except Exception as e:
             raise Exception(f"Error loading workbook {filepath}: {str(e)}")
+
+    def process_report_with_xlwings(
+        self,
+        template_path: Path,
+        daily_sheet_path: Path,
+        output_path: Path,
+    ) -> None:
+        """
+        Perform the full workflow using Excel via xlwings (recommended on Windows).
+
+        Steps:
+        - Open template workbook
+        - Replace `worksheet_1_name` contents by pasting daily sheet values starting at A1
+        - Refresh workbook connections (for Summary table)
+        - Copy Summary table values into iPhone sheet (values-only) starting at A1
+        - Save as output_path
+        """
+        if not XLWINGS_AVAILABLE:
+            raise RuntimeError("xlwings is not available; cannot process with Excel automation.")
+        if not template_path.exists():
+            raise FileNotFoundError(f"Template workbook not found: {template_path}")
+        if not daily_sheet_path.exists():
+            raise FileNotFoundError(f"Daily sheet not found: {daily_sheet_path}")
+
+        app = None
+        template_wb = None
+        daily_wb = None
+
+        try:
+            self.logger.info("Opening Excel (xlwings) for refresh-enabled processing...")
+            app = xw.App(visible=False)
+            app.display_alerts = False
+            app.screen_updating = False
+
+            template_wb = app.books.open(str(template_path))
+            daily_wb = app.books.open(str(daily_sheet_path))
+
+            # Sheets
+            report_ws = template_wb.sheets[self.worksheet_1_name]
+            summary_ws = template_wb.sheets[self.worksheet_2_name]
+            iphone_ws = template_wb.sheets[self.worksheet_3_name]
+            daily_ws = daily_wb.sheets[0]
+
+            # Step: Replace "large deal report" contents starting at A1
+            self.logger.info(f"Pasting daily sheet into '{self.worksheet_1_name}'!A1 ...")
+            try:
+                report_ws.api.Cells.ClearContents()
+            except Exception:
+                report_ws.clear_contents()
+
+            values = daily_ws.used_range.value
+            if values is None:
+                raise ValueError("Daily worksheet appears to be empty.")
+            report_ws.range("A1").value = values
+
+            # Step: Refresh (Power Query / external connections / table refresh)
+            self.logger.info(f"Refreshing workbook connections for '{self.worksheet_2_name}' ...")
+            template_wb.api.RefreshAll()
+            try:
+                app.api.CalculateUntilAsyncQueriesDone()
+            except Exception:
+                pass
+
+            # Poll calculation state: 0=xlDone, 1=xlCalculating, 2=xlPending
+            deadline = time.time() + 180  # 3 minutes
+            while time.time() < deadline:
+                try:
+                    if int(app.api.CalculationState) == 0:
+                        break
+                except Exception:
+                    break
+                time.sleep(0.5)
+
+            # Step: Copy summary table values into iPhone sheet (values-only)
+            self.logger.info(f"Copying Summary table values into '{self.worksheet_3_name}' ...")
+            table_values = None
+            try:
+                list_objects = summary_ws.api.ListObjects
+                if list_objects.Count > 0:
+                    table_values = list_objects.Item(1).Range.Value
+            except Exception:
+                table_values = None
+
+            if table_values is None:
+                table_values = summary_ws.used_range.value
+
+            try:
+                iphone_ws.api.Cells.ClearContents()
+            except Exception:
+                iphone_ws.clear_contents()
+            iphone_ws.range("A1").value = table_values
+
+            # Save
+            self.logger.info(f"Saving refreshed report to: {output_path}")
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            template_wb.save(str(output_path))
+
+        finally:
+            if daily_wb:
+                try:
+                    daily_wb.close()
+                except Exception:
+                    pass
+            if template_wb:
+                try:
+                    template_wb.close()
+                except Exception:
+                    pass
+            if app:
+                try:
+                    app.quit()
+                except Exception:
+                    pass
     
     def update_worksheet_1(self, workbook: openpyxl.Workbook, daily_sheet_path: Path) -> None:
         """
@@ -252,23 +366,10 @@ class ExcelProcessor:
             # Create new worksheet 3
             ws3 = workbook.create_sheet(self.worksheet_3_name)
             
-            # Copy data from worksheet 2 to worksheet 3
+            # Copy values from worksheet 2 to worksheet 3 (values-only)
             for row in ws2.iter_rows(values_only=True):
                 if any(cell is not None for cell in row):  # Skip completely empty rows
                     ws3.append(row)
-            
-            # Copy formatting
-            for row_idx, row in enumerate(ws2.iter_rows(), start=1):
-                if row_idx > ws3.max_row:
-                    break
-                for col_idx, cell in enumerate(row, start=1):
-                    if cell.has_style:
-                        target_cell = ws3.cell(row=row_idx, column=col_idx)
-                        target_cell.font = cell.font
-                        target_cell.fill = cell.fill
-                        target_cell.border = cell.border
-                        target_cell.alignment = cell.alignment
-                        target_cell.number_format = cell.number_format
             
             # Apply smartphone-friendly formatting (optional enhancements)
             # Adjust column widths for better mobile viewing

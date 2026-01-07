@@ -1,13 +1,19 @@
 {
   "email": {
-    "username": "your_email@gmail.com",
-    "password": "your_app_password",
+    "username": "your_email@example.com",
+    "password": "your_password_or_app_password",
     "sender_email": "sender@example.com",
-    "imap_server": "imap.gmail.com",
+    "imap_server": "outlook.office365.com",
     "imap_port": 993,
-    "smtp_server": "smtp.gmail.com",
+    "smtp_server": "smtp.office365.com",
     "smtp_port": 587,
-    "use_outlook_for_sending": true
+
+    "incoming_subject_contains": "large trade td",
+
+    "use_outlook_for_downloading": true,
+    "use_outlook_for_sending": true,
+    "outlook_send_email": false,
+    "outlook_use_signature": true
   },
   "distribution_list": [
     "recipient1@example.com",
@@ -15,11 +21,22 @@
     "recipient3@example.com"
   ],
   "sender_name": "Your Name",
+
+  "email_subject_template": "Large Deal Report - {date}",
+  "email_body_template": "Hi all,<br><br>Please see the large deal report for {date}.<br><br>Kind regards,<br>{sender_name}",
+
   "reports_directory": "./reports",
   "temp_directory": "./temp",
-  "worksheet_1_name": "Sheet1",
-  "worksheet_2_name": "Sheet2",
-  "worksheet_3_name": "Sheet3",
+  "worksheet_1_name": "large deal report",
+  "worksheet_2_name": "summary",
+  "worksheet_3_name": "iphone compatible",
+
+  "date_format": "%d %b %Y",
+  "file_date_format": "%Y-%m-%d",
+  "skip_weekends": true,
+  "bank_holidays": [],
+
+  "prefer_xlwings": true,
   "log_level": "INFO",
   "log_file": null
 }

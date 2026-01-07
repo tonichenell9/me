@@ -46,10 +46,19 @@ class LargeDealReportAutomation:
         self.temp_dir = Path(self.config.get('temp_directory', './temp'))
         self.temp_dir.mkdir(exist_ok=True)
         
-        self.current_date = datetime.now().strftime('%Y-%m-%d')
+        now = datetime.now()
+        self.file_date = now.strftime(self.config.get('file_date_format', '%Y-%m-%d'))
+        self.display_date = now.strftime(self.config.get('date_format', '%Y-%m-%d'))
+        self.today_iso = now.strftime('%Y-%m-%d')
         
         # Initialize handlers
-        self.email_handler = EmailHandler(self.config['email'])
+        email_cfg = dict(self.config['email'])
+        # Allow subject/body templates to live at root config
+        if self.config.get('email_subject_template'):
+            email_cfg['email_subject_template'] = self.config.get('email_subject_template')
+        if self.config.get('email_body_template'):
+            email_cfg['email_body_template'] = self.config.get('email_body_template')
+        self.email_handler = EmailHandler(email_cfg)
         self.excel_processor = ExcelProcessor(self.config)
         
         self.logger.info("Large Deal Report Automation initialized")
@@ -202,39 +211,53 @@ class LargeDealReportAutomation:
             self.logger.info("=" * 60)
             self.logger.info("Large Deal Report Automation - Starting")
             self.logger.info("=" * 60)
+
+            # Optional: skip weekends / bank holidays
+            if self.config.get('skip_weekends', False):
+                weekday = datetime.now().weekday()  # Mon=0 ... Sun=6
+                if weekday >= 5:
+                    self.logger.info("Weekend detected and skip_weekends=true. Nothing to do.")
+                    return
+
+            bank_holidays = set(self.config.get('bank_holidays', []) or [])
+            if bank_holidays and self.today_iso in bank_holidays:
+                self.logger.info("Bank holiday detected (per config). Nothing to do.")
+                return
             
             # Step 1: Find latest report
             self.logger.info("Step 1: Finding latest report...")
             latest_report_path = self.find_latest_report()
-            workbook = self.excel_processor.load_workbook(latest_report_path)
             
             # Step 2: Download daily email attachment
             self.logger.info("Step 2: Downloading daily email attachment...")
             daily_sheet_path = self.email_handler.download_daily_attachment(
                 self.temp_dir, 
-                self.current_date
+                self.file_date
             )
-            
-            # Step 3: Update worksheet 1 with daily data
-            self.logger.info("Step 3: Updating Worksheet 1...")
-            self.excel_processor.update_worksheet_1(workbook, daily_sheet_path)
-            
-            # Step 4: Refresh worksheet 2
-            self.logger.info("Step 4: Refreshing Worksheet 2...")
-            self.excel_processor.refresh_worksheet_2(workbook, latest_report_path)
-            
-            # Step 5: Copy worksheet 2 to worksheet 3
-            self.logger.info("Step 5: Copying Worksheet 2 to Worksheet 3...")
-            self.excel_processor.copy_worksheet_2_to_3(workbook)
-            
-            # Step 6: Save report with date-stamped filename
-            self.logger.info("Step 6: Saving report...")
-            filename = f"large deal report -{self.current_date}.xlsx"
+
+            # Step 3-6: Process the workbook
+            filename = f"large deal report -{self.file_date}.xlsx"
             new_report_path = self.reports_dir / filename
-            self.excel_processor.save_workbook(workbook, new_report_path)
-            
-            # Close workbook before sending email
-            if workbook:
+
+            prefer_xlwings = bool(self.config.get('prefer_xlwings', True))
+            if prefer_xlwings:
+                self.logger.info("Processing workbook via Excel (xlwings) for reliable refresh...")
+                self.excel_processor.process_report_with_xlwings(
+                    latest_report_path,
+                    daily_sheet_path,
+                    new_report_path,
+                )
+            else:
+                # Fallback: openpyxl-only processing (no Power Query refresh)
+                workbook = self.excel_processor.load_workbook(latest_report_path)
+                self.logger.info("Step 3: Updating Worksheet 1...")
+                self.excel_processor.update_worksheet_1(workbook, daily_sheet_path)
+                self.logger.info("Step 4: Refreshing Worksheet 2...")
+                self.excel_processor.refresh_worksheet_2(workbook, latest_report_path)
+                self.logger.info("Step 5: Copying Worksheet 2 to Worksheet 3...")
+                self.excel_processor.copy_worksheet_2_to_3(workbook)
+                self.logger.info("Step 6: Saving report...")
+                self.excel_processor.save_workbook(workbook, new_report_path)
                 workbook.close()
                 workbook = None
             
@@ -245,7 +268,7 @@ class LargeDealReportAutomation:
                 new_report_path,
                 self.config['distribution_list'],
                 sender_name,
-                self.current_date
+                self.display_date
             )
             
             # Step 8: Cleanup
