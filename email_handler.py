@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Email Handler Module
-Handles email retrieval (IMAP) and sending (SMTP or Outlook COM) functionality.
+Handles email retrieval (IMAP/Outlook) and sending (SMTP or Outlook COM) functionality.
 """
 
 import imaplib
@@ -36,44 +36,47 @@ class EmailHandler:
             email_config: Dictionary containing email settings:
                 - username: Email address (for IMAP/SMTP)
                 - password: App password or password (for IMAP/SMTP)
-                - sender_email: Email address to look for
+                - incoming_subject: Subject line to search for incoming emails (e.g., "large trade td")
                 - imap_server: IMAP server address
                 - imap_port: IMAP server port
                 - smtp_server: SMTP server address (optional if using Outlook)
                 - smtp_port: SMTP server port (optional if using Outlook)
-                - use_outlook_for_sending: If True, use Outlook COM instead of SMTP (Windows only)
+                - use_outlook: If True, use Outlook COM for both reading and sending (Windows only)
+                - preview_before_send: If True, displays the email for review before sending
         """
         self.email_config = email_config
         self.username = email_config.get('username')
         self.password = email_config.get('password')
-        self.sender_email = email_config['sender_email']
-        self.imap_server = email_config.get('imap_server', 'imap.gmail.com')
+        self.incoming_subject = email_config.get('incoming_subject', 'large trade td')
+        self.imap_server = email_config.get('imap_server', 'outlook.office365.com')
         self.imap_port = email_config.get('imap_port', 993)
-        self.smtp_server = email_config.get('smtp_server', 'smtp.gmail.com')
+        self.smtp_server = email_config.get('smtp_server', 'smtp.office365.com')
         self.smtp_port = email_config.get('smtp_port', 587)
-        self.use_outlook_for_sending = email_config.get('use_outlook_for_sending', False)
+        self.use_outlook = email_config.get('use_outlook', True)
+        self.preview_before_send = email_config.get('preview_before_send', True)
         self.logger = logging.getLogger(__name__)
         
         # Validate Outlook availability if requested
-        if self.use_outlook_for_sending:
+        if self.use_outlook:
             if not OUTLOOK_COM_AVAILABLE:
                 raise ImportError(
                     "Outlook COM requested but win32com not available.\n"
                     "Install it with: pip install pywin32\n"
                     "Note: This requires Windows and Outlook to be installed."
                 )
-            self.logger.info("Will use Outlook COM interface for sending emails")
+            self.logger.info("Will use Outlook COM interface for email operations")
         else:
-            # Validate SMTP credentials are provided
+            # Validate IMAP/SMTP credentials are provided
             if not self.username or not self.password:
                 raise ValueError(
-                    "SMTP credentials (username and password) are required "
-                    "when not using Outlook for sending."
+                    "Email credentials (username and password) are required "
+                    "when not using Outlook."
                 )
     
     def download_daily_attachment(self, save_directory: Path, current_date: str) -> Path:
         """
         Download the daily worksheet attachment from email.
+        Searches for emails with subject containing 'large trade td'.
         
         Args:
             save_directory: Directory to save the downloaded attachment
@@ -85,7 +88,112 @@ class EmailHandler:
         Raises:
             Exception: If email retrieval or download fails
         """
-        self.logger.info("Connecting to email server...")
+        if self.use_outlook:
+            return self._download_via_outlook(save_directory, current_date)
+        else:
+            return self._download_via_imap(save_directory, current_date)
+    
+    def _download_via_outlook(self, save_directory: Path, current_date: str) -> Path:
+        """
+        Download the daily worksheet using Outlook COM interface.
+        Searches for emails with subject containing 'large trade td'.
+        
+        Args:
+            save_directory: Directory to save the downloaded attachment
+            current_date: Current date string (YYYY-MM-DD)
+            
+        Returns:
+            Path to the downloaded file
+        """
+        self.logger.info("Connecting to Outlook...")
+        
+        try:
+            outlook = win32com.client.Dispatch("Outlook.Application")
+            namespace = outlook.GetNamespace("MAPI")
+            inbox = namespace.GetDefaultFolder(6)  # 6 = olFolderInbox
+            
+            self.logger.info(f"Searching for emails with subject containing '{self.incoming_subject}'...")
+            
+            # Get all inbox items and filter by subject
+            messages = inbox.Items
+            messages.Sort("[ReceivedTime]", True)  # Sort descending (most recent first)
+            
+            # Search for matching email
+            found_email = None
+            today = datetime.now().date()
+            
+            # First try to find one from today
+            for message in messages:
+                try:
+                    subject = message.Subject.lower() if message.Subject else ""
+                    received_date = message.ReceivedTime.date()
+                    
+                    if self.incoming_subject.lower() in subject:
+                        if received_date == today:
+                            found_email = message
+                            self.logger.info(f"Found today's email: {message.Subject}")
+                            break
+                except Exception as e:
+                    continue
+            
+            # If no email from today, get the most recent matching email
+            if not found_email:
+                self.logger.warning("No matching email found from today. Searching for most recent...")
+                for message in messages:
+                    try:
+                        subject = message.Subject.lower() if message.Subject else ""
+                        if self.incoming_subject.lower() in subject:
+                            found_email = message
+                            self.logger.info(f"Found recent email: {message.Subject}")
+                            break
+                    except Exception as e:
+                        continue
+            
+            if not found_email:
+                raise Exception(
+                    f"No emails found with subject containing '{self.incoming_subject}'. "
+                    "Please ensure you have received the daily email."
+                )
+            
+            # Find and download Excel attachment
+            attachment_path = None
+            attachments = found_email.Attachments
+            
+            for i in range(1, attachments.Count + 1):
+                attachment = attachments.Item(i)
+                filename = attachment.FileName
+                
+                if filename and (filename.lower().endswith('.xlsx') or filename.lower().endswith('.xls')):
+                    attachment_path = save_directory / f"daily_sheet_{current_date}.xlsx"
+                    attachment.SaveAsFile(str(attachment_path))
+                    self.logger.info(f"Downloaded attachment: {filename} -> {attachment_path}")
+                    break
+            
+            if not attachment_path or not attachment_path.exists():
+                raise Exception(
+                    "No Excel attachment (.xlsx or .xls) found in email. "
+                    "Please ensure the email contains an Excel file attachment."
+                )
+            
+            return attachment_path
+            
+        except Exception as e:
+            self.logger.error(f"Error downloading via Outlook: {str(e)}")
+            raise Exception(f"Error downloading email attachment via Outlook: {str(e)}")
+    
+    def _download_via_imap(self, save_directory: Path, current_date: str) -> Path:
+        """
+        Download the daily worksheet using IMAP.
+        Searches for emails with subject containing 'large trade td'.
+        
+        Args:
+            save_directory: Directory to save the downloaded attachment
+            current_date: Current date string (YYYY-MM-DD)
+            
+        Returns:
+            Path to the downloaded file
+        """
+        self.logger.info("Connecting to email server via IMAP...")
         mail = None
         
         try:
@@ -95,11 +203,11 @@ class EmailHandler:
             mail.login(self.username, self.password)
             mail.select('inbox')
             
-            self.logger.info(f"Searching for emails from {self.sender_email}...")
+            self.logger.info(f"Searching for emails with subject containing '{self.incoming_subject}'...")
             
-            # Search for emails from today with attachments
+            # Search for emails by subject from today
             today = datetime.now().strftime('%d-%b-%Y')
-            search_criteria = f'(FROM "{self.sender_email}" SINCE {today})'
+            search_criteria = f'(SUBJECT "{self.incoming_subject}" SINCE {today})'
             status, messages = mail.search(None, search_criteria)
             
             if status != 'OK':
@@ -110,7 +218,7 @@ class EmailHandler:
             # If no emails from today, try without date restriction (get most recent)
             if not email_ids:
                 self.logger.warning("No emails found from today. Searching for most recent email...")
-                search_criteria = f'(FROM "{self.sender_email}")'
+                search_criteria = f'(SUBJECT "{self.incoming_subject}")'
                 status, messages = mail.search(None, search_criteria)
                 
                 if status != 'OK':
@@ -120,7 +228,7 @@ class EmailHandler:
             
             if not email_ids:
                 raise Exception(
-                    f"No emails found from {self.sender_email}. "
+                    f"No emails found with subject containing '{self.incoming_subject}'. "
                     "Please ensure you have received the daily email."
                 )
             
@@ -155,7 +263,7 @@ class EmailHandler:
                         if isinstance(decoded_filename, bytes):
                             filename = decoded_filename.decode()
                         
-                        if filename and (filename.endswith('.xlsx') or filename.endswith('.xls')):
+                        if filename and (filename.lower().endswith('.xlsx') or filename.lower().endswith('.xls')):
                             attachment_path = save_directory / f"daily_sheet_{current_date}.xlsx"
                             
                             # Download attachment
@@ -183,7 +291,7 @@ class EmailHandler:
             if "login" in str(e).lower() or "authentication" in str(e).lower():
                 error_msg = (
                     f"Email authentication failed: {str(e)}\n"
-                    "For Gmail, make sure you're using an App Password, not your regular password."
+                    "For Gmail/Outlook, make sure you're using an App Password."
                 )
                 self.logger.error(error_msg)
                 raise Exception(error_msg)
@@ -202,46 +310,56 @@ class EmailHandler:
         report_path: Path, 
         distribution_list: List[str], 
         sender_name: str, 
-        current_date: str
+        current_date: str,
+        email_body: str = None
     ) -> None:
         """
-        Send the report via email to the distribution list.
+        Send or preview the report via email to the distribution list.
         Uses Outlook COM if configured, otherwise uses SMTP.
+        
+        If preview_before_send is True (default), the email will be displayed
+        in Outlook for review before sending manually.
         
         Args:
             report_path: Path to the report file to attach
             distribution_list: List of recipient email addresses
             sender_name: Name of the sender
-            current_date: Current date string (YYYY-MM-DD)
+            current_date: Current date string (DD/MM/YYYY format for display)
+            email_body: Optional custom email body text
             
         Raises:
             Exception: If email sending fails
         """
-        if self.use_outlook_for_sending:
-            self._send_via_outlook(report_path, distribution_list, sender_name, current_date)
+        if self.use_outlook:
+            self._send_via_outlook(report_path, distribution_list, sender_name, current_date, email_body)
         else:
-            self._send_via_smtp(report_path, distribution_list, sender_name, current_date)
+            self._send_via_smtp(report_path, distribution_list, sender_name, current_date, email_body)
     
     def _send_via_outlook(
         self,
         report_path: Path,
         distribution_list: List[str],
         sender_name: str,
-        current_date: str
+        current_date: str,
+        email_body: str = None
     ) -> None:
         """
-        Send email using Outlook COM interface (Windows only).
+        Send or preview email using Outlook COM interface (Windows only).
+        
+        If preview_before_send is True, displays the email for review instead of sending.
         
         Args:
             report_path: Path to the report file to attach
             distribution_list: List of recipient email addresses
             sender_name: Name of the sender
-            current_date: Current date string (YYYY-MM-DD)
+            current_date: Current date string (DD/MM/YYYY format)
+            email_body: Optional custom email body text
             
         Raises:
             Exception: If email sending fails
         """
-        self.logger.info("Preparing email in Outlook...")
+        action = "preview" if self.preview_before_send else "send"
+        self.logger.info(f"Preparing email in Outlook for {action}...")
         
         try:
             # Validate report file exists
@@ -253,15 +371,20 @@ class EmailHandler:
             outlook = win32com.client.Dispatch("Outlook.Application")
             mail = outlook.CreateItem(0)  # 0 = MailItem
             
-            # Set email properties
+            # Set email properties with proper date format
             mail.Subject = f"Large Deal Report - {current_date}"
-            mail.Body = (
-                f"Hi all,\n\n"
-                f"Please see the large deal report for {current_date}.\n\n"
-                f"Kind regards,\n{sender_name}"
-            )
             
-            # Add recipients
+            # Use custom body if provided, otherwise use default
+            if email_body:
+                mail.Body = email_body
+            else:
+                mail.Body = (
+                    f"Hi all,\n\n"
+                    f"Please find attached today's Large Deal Report for {current_date}.\n\n"
+                    f"Kind regards,\n{sender_name}"
+                )
+            
+            # Add recipients (could be distribution lists or individual emails)
             self.logger.info(f"Adding {len(distribution_list)} recipient(s)...")
             for recipient in distribution_list:
                 mail.Recipients.Add(recipient)
@@ -270,17 +393,22 @@ class EmailHandler:
             self.logger.info(f"Attaching report: {report_path.name}")
             mail.Attachments.Add(str(report_path))
             
-            # Send email
-            self.logger.info("Sending email via Outlook...")
-            mail.Send()
-            
-            self.logger.info("Email sent successfully via Outlook!")
+            if self.preview_before_send:
+                # Display the email for review - user must click Send manually
+                self.logger.info("Opening email for preview - please review and click Send when ready...")
+                mail.Display(True)  # True = modal window
+                self.logger.info("Email displayed for preview. User will send manually.")
+            else:
+                # Send email automatically
+                self.logger.info("Sending email via Outlook...")
+                mail.Send()
+                self.logger.info("Email sent successfully via Outlook!")
             
         except FileNotFoundError as e:
             self.logger.error(f"Report file not found: {str(e)}")
             raise
         except Exception as e:
-            error_msg = f"Error sending email via Outlook: {str(e)}"
+            error_msg = f"Error {action}ing email via Outlook: {str(e)}"
             self.logger.error(error_msg)
             if "Outlook.Application" in str(e) or "COM" in str(e) or "win32com" in str(e):
                 raise Exception(
@@ -295,20 +423,31 @@ class EmailHandler:
         report_path: Path,
         distribution_list: List[str],
         sender_name: str,
-        current_date: str
+        current_date: str,
+        email_body: str = None
     ) -> None:
         """
         Send email using SMTP.
+        
+        Note: SMTP mode does not support preview - emails are sent directly.
+        For preview functionality, use Outlook mode instead.
         
         Args:
             report_path: Path to the report file to attach
             distribution_list: List of recipient email addresses
             sender_name: Name of the sender
-            current_date: Current date string (YYYY-MM-DD)
+            current_date: Current date string (DD/MM/YYYY format)
+            email_body: Optional custom email body text
             
         Raises:
             Exception: If email sending fails
         """
+        if self.preview_before_send:
+            self.logger.warning(
+                "Preview mode is not supported with SMTP. "
+                "Email will be sent directly. Use Outlook mode for preview functionality."
+            )
+        
         self.logger.info("Preparing email via SMTP...")
         server = None
         
@@ -323,12 +462,15 @@ class EmailHandler:
             msg['To'] = ', '.join(distribution_list)
             msg['Subject'] = f"Large Deal Report - {current_date}"
             
-            # Email body
-            body = (
-                f"Hi all,\n\n"
-                f"Please see the large deal report for {current_date}.\n\n"
-                f"Kind regards,\n{sender_name}"
-            )
+            # Email body - use custom or default
+            if email_body:
+                body = email_body
+            else:
+                body = (
+                    f"Hi all,\n\n"
+                    f"Please find attached today's Large Deal Report for {current_date}.\n\n"
+                    f"Kind regards,\n{sender_name}"
+                )
             msg.attach(MIMEText(body, 'plain'))
             
             # Attach report
@@ -358,7 +500,7 @@ class EmailHandler:
         except smtplib.SMTPAuthenticationError as e:
             error_msg = (
                 f"SMTP authentication failed: {str(e)}\n"
-                "For Gmail, make sure you're using an App Password, not your regular password."
+                "Make sure you're using an App Password, not your regular password."
             )
             self.logger.error(error_msg)
             raise Exception(error_msg)

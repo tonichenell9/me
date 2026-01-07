@@ -2,6 +2,14 @@
 """
 Large Deal Report Automation Script
 Automates the daily generation and distribution of the Large Deal Report.
+
+Workflow:
+1. Download the daily worksheet from email with subject "large trade td"
+2. Copy/paste that data into the 'large deal report' worksheet (starting at A1)
+3. Refresh the 'summary' worksheet (right-click refresh on table)
+4. Copy the summary table and paste values only into 'iphone compatible'
+5. Save the workbook as "large deal report - {today's date}.xlsx"
+6. Open email preview (or send) to distribution list
 """
 
 import os
@@ -46,7 +54,10 @@ class LargeDealReportAutomation:
         self.temp_dir = Path(self.config.get('temp_directory', './temp'))
         self.temp_dir.mkdir(exist_ok=True)
         
-        self.current_date = datetime.now().strftime('%Y-%m-%d')
+        # Date formats
+        self.current_date_file = datetime.now().strftime('%d-%m-%Y')  # For filenames (DD-MM-YYYY)
+        self.current_date_display = datetime.now().strftime('%d/%m/%Y')  # For display (DD/MM/YYYY)
+        self.current_date_iso = datetime.now().strftime('%Y-%m-%d')  # For internal use
         
         # Initialize handlers
         self.email_handler = EmailHandler(self.config['email'])
@@ -103,21 +114,19 @@ class LargeDealReportAutomation:
                 if section not in config:
                     raise ValueError(f"Missing required configuration section: {section}")
             
-            # Validate email configuration
-            required_email_fields = ['sender_email']
-            for field in required_email_fields:
-                if field not in config['email']:
-                    raise ValueError(f"Missing required email configuration: {field}")
+            # Validate email configuration - need incoming_subject for searching emails
+            if 'incoming_subject' not in config['email']:
+                config['email']['incoming_subject'] = 'large trade td'  # Default
             
-            # Validate SMTP credentials if not using Outlook for sending
-            use_outlook = config['email'].get('use_outlook_for_sending', False)
+            # Validate SMTP credentials if not using Outlook
+            use_outlook = config['email'].get('use_outlook', True)  # Default to Outlook on Windows
             if not use_outlook:
                 smtp_required_fields = ['username', 'password']
                 for field in smtp_required_fields:
                     if field not in config['email']:
                         raise ValueError(
                             f"Missing required email configuration: {field}\n"
-                            "Either provide SMTP credentials or set 'use_outlook_for_sending' to true."
+                            "Either provide email credentials or set 'use_outlook' to true."
                         )
             
             return config
@@ -140,6 +149,7 @@ class LargeDealReportAutomation:
     def find_latest_report(self) -> Path:
         """
         Find the most recently generated report file.
+        Looks for files matching "large deal report*.xlsx" pattern.
         
         Returns:
             Path to the latest report file
@@ -147,14 +157,26 @@ class LargeDealReportAutomation:
         Raises:
             FileNotFoundError: If no reports are found
         """
-        pattern = str(self.reports_dir / "large deal report -*.xlsx")
-        reports = glob.glob(pattern)
+        # Try multiple patterns to find reports
+        patterns = [
+            str(self.reports_dir / "large deal report -*.xlsx"),
+            str(self.reports_dir / "large deal report - *.xlsx"),
+            str(self.reports_dir / "large deal report*.xlsx"),
+            str(self.reports_dir / "Large Deal Report*.xlsx"),
+        ]
+        
+        reports = []
+        for pattern in patterns:
+            reports.extend(glob.glob(pattern))
+        
+        # Remove duplicates
+        reports = list(set(reports))
         
         if not reports:
             error_msg = (
                 f"No existing reports found in {self.reports_dir}. "
                 "Please ensure at least one report exists with the naming pattern: "
-                "'large deal report -YYYY-MM-DD.xlsx'"
+                "'large deal report - DD-MM-YYYY.xlsx'"
             )
             self.logger.error(error_msg)
             raise FileNotFoundError(error_msg)
@@ -192,44 +214,66 @@ class LargeDealReportAutomation:
         """
         Execute the complete automation process.
         
+        Workflow:
+        1. Find the latest existing report (template)
+        2. Download the daily worksheet from "large trade td" email
+        3. Paste data into 'large deal report' sheet starting at A1
+        4. Refresh the 'summary' sheet (table refresh)
+        5. Copy summary table to 'iphone compatible' (paste values only)
+        6. Save as "large deal report - {date}.xlsx"
+        7. Open email preview (or send) to distribution list
+        
         Raises:
             SystemExit: If the automation fails
         """
         workbook = None
         daily_sheet_path = None
+        new_report_path = None
         
         try:
             self.logger.info("=" * 60)
             self.logger.info("Large Deal Report Automation - Starting")
+            self.logger.info(f"Date: {self.current_date_display}")
             self.logger.info("=" * 60)
             
-            # Step 1: Find latest report
-            self.logger.info("Step 1: Finding latest report...")
+            # Step 1: Find latest report (this is the template we'll modify)
+            self.logger.info("\nStep 1: Finding latest report template...")
             latest_report_path = self.find_latest_report()
-            workbook = self.excel_processor.load_workbook(latest_report_path)
             
-            # Step 2: Download daily email attachment
-            self.logger.info("Step 2: Downloading daily email attachment...")
+            # Step 2: Download daily email attachment (from "large trade td" email)
+            self.logger.info("\nStep 2: Downloading daily worksheet from email...")
             daily_sheet_path = self.email_handler.download_daily_attachment(
                 self.temp_dir, 
-                self.current_date
+                self.current_date_iso
             )
             
-            # Step 3: Update worksheet 1 with daily data
-            self.logger.info("Step 3: Updating Worksheet 1...")
-            self.excel_processor.update_worksheet_1(workbook, daily_sheet_path)
+            # Step 3: Load workbook and update 'large deal report' sheet with daily data
+            self.logger.info("\nStep 3: Updating 'large deal report' worksheet...")
+            workbook = self.excel_processor.load_workbook(latest_report_path)
+            self.excel_processor.update_large_deal_report_sheet(workbook, daily_sheet_path)
             
-            # Step 4: Refresh worksheet 2
-            self.logger.info("Step 4: Refreshing Worksheet 2...")
-            self.excel_processor.refresh_worksheet_2(workbook, latest_report_path)
+            # Step 4: Save intermediate version before xlwings refresh
+            # (xlwings needs to work with a saved file)
+            temp_report_path = self.temp_dir / f"temp_report_{self.current_date_iso}.xlsx"
+            self.excel_processor.save_workbook(workbook, temp_report_path)
+            workbook.close()
             
-            # Step 5: Copy worksheet 2 to worksheet 3
-            self.logger.info("Step 5: Copying Worksheet 2 to Worksheet 3...")
-            self.excel_processor.copy_worksheet_2_to_3(workbook)
+            # Step 5: Refresh 'summary' sheet using xlwings (right-click refresh)
+            self.logger.info("\nStep 4: Refreshing 'summary' worksheet (table refresh)...")
+            workbook = self.excel_processor.load_workbook(temp_report_path)
+            self.excel_processor.refresh_summary_sheet(workbook, temp_report_path)
             
-            # Step 6: Save report with date-stamped filename
-            self.logger.info("Step 6: Saving report...")
-            filename = f"large deal report -{self.current_date}.xlsx"
+            # Reload workbook after xlwings refresh
+            workbook.close()
+            workbook = self.excel_processor.load_workbook(temp_report_path)
+            
+            # Step 6: Copy summary to iphone compatible (paste values only)
+            self.logger.info("\nStep 5: Copying 'summary' to 'iphone compatible' (values only)...")
+            self.excel_processor.copy_summary_to_iphone_compatible(workbook)
+            
+            # Step 7: Save final report with date-stamped filename
+            self.logger.info("\nStep 6: Saving final report...")
+            filename = f"large deal report - {self.current_date_file}.xlsx"
             new_report_path = self.reports_dir / filename
             self.excel_processor.save_workbook(workbook, new_report_path)
             
@@ -238,23 +282,28 @@ class LargeDealReportAutomation:
                 workbook.close()
                 workbook = None
             
-            # Step 7: Send email
-            self.logger.info("Step 7: Sending email...")
-            sender_name = self.config.get('sender_name', 'Automated Report System')
+            # Step 8: Prepare and preview/send email
+            self.logger.info("\nStep 7: Preparing email...")
+            sender_name = self.config.get('sender_name', 'Your Name')
+            email_body = self.config.get('email_body', None)
+            
             self.email_handler.send_report_email(
                 new_report_path,
                 self.config['distribution_list'],
                 sender_name,
-                self.current_date
+                self.current_date_display,
+                email_body
             )
             
-            # Step 8: Cleanup
-            self.logger.info("Step 8: Cleaning up temporary files...")
+            # Step 9: Cleanup
+            self.logger.info("\nStep 8: Cleaning up temporary files...")
             self.cleanup_temp_files()
             
-            self.logger.info("=" * 60)
+            self.logger.info("\n" + "=" * 60)
             self.logger.info("Large Deal Report Automation - Completed Successfully!")
             self.logger.info(f"Report saved to: {new_report_path}")
+            if self.email_handler.preview_before_send:
+                self.logger.info("Email is open for preview - please review and click Send.")
             self.logger.info("=" * 60)
             
         except FileNotFoundError as e:
