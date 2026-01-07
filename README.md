@@ -295,6 +295,35 @@ Use the provided `run_report.sh` script:
 ./run_report.sh
 ```
 
+## Excel Merge + Merge-and-Center Formatting (Standalone)
+
+If you just want to merge **two Excel spreadsheets** into one and then **merge + center** consecutive identical values **within each column**, use:
+
+```bash
+python excel_merge_and_align.py --file-a "/path/to/a.xlsx" --file-b "/path/to/b.xlsx" --out "/path/to/output.xlsx"
+```
+
+Common options:
+
+- **Choose worksheets**:
+
+```bash
+python excel_merge_and_align.py --file-a a.xlsx --sheet-a "Sheet1" --file-b b.xlsx --sheet-b "Sheet1" --out merged.xlsx
+```
+
+- **Only merge+center specific columns** (by header name or 1-based index):
+
+```bash
+python excel_merge_and_align.py --file-a a.xlsx --file-b b.xlsx --out merged.xlsx --merge-columns "Status,Owner"
+python excel_merge_and_align.py --file-a a.xlsx --file-b b.xlsx --out merged.xlsx --merge-columns "1,2,5"
+```
+
+- **Skip the merge+center formatting step**:
+
+```bash
+python excel_merge_and_align.py --file-a a.xlsx --file-b b.xlsx --out merged.xlsx --no-merge-identical
+```
+
 ## How It Works
 
 ### Step-by-Step Process

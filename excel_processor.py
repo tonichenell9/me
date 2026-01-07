@@ -6,9 +6,10 @@ Handles Excel file manipulation, worksheet updates, refresh operations, and copy
 
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional, Sequence
 import openpyxl
 from openpyxl import load_workbook
+from openpyxl.styles import Alignment
 
 # Try to import xlwings for Excel refresh functionality
 try:
@@ -17,6 +18,216 @@ try:
 except ImportError:
     XLWINGS_AVAILABLE = False
     logging.warning("xlwings not available. Worksheet 2 refresh will use fallback method.")
+
+DEFAULT_MERGED_CELL_ALIGNMENT = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+
+def _normalize_header(value: object, fallback: str) -> str:
+    """Convert a header cell value into a usable string."""
+    if value is None:
+        return fallback
+    text = str(value).strip()
+    return text if text else fallback
+
+
+def read_worksheet_as_table(
+    workbook_path: Path,
+    sheet_name: Optional[str] = None,
+    *,
+    header_row: int = 1,
+    data_start_row: int = 2,
+) -> tuple[list[str], list[dict[str, object]]]:
+    """
+    Read an Excel worksheet into a simple table.
+
+    - Uses the `header_row` to create column names.
+    - Returns a list of row dicts keyed by those headers.
+    - Skips completely empty rows.
+    """
+    wb = load_workbook(workbook_path, data_only=True)
+    try:
+        ws = wb[sheet_name] if sheet_name else wb.active
+
+        raw_headers: list[object] = [
+            ws.cell(row=header_row, column=col).value for col in range(1, ws.max_column + 1)
+        ]
+        headers: list[str] = []
+        seen: set[str] = set()
+        for idx, raw in enumerate(raw_headers, start=1):
+            base = _normalize_header(raw, f"Column{idx}")
+            name = base
+            suffix = 2
+            while name in seen:
+                name = f"{base}_{suffix}"
+                suffix += 1
+            seen.add(name)
+            headers.append(name)
+
+        rows: list[dict[str, object]] = []
+        for row in ws.iter_rows(
+            min_row=data_start_row,
+            max_row=ws.max_row,
+            max_col=len(headers),
+            values_only=True,
+        ):
+            if not row or not any(cell is not None and str(cell).strip() != "" for cell in row):
+                continue
+            rows.append({headers[i]: row[i] for i in range(len(headers))})
+
+        return headers, rows
+    finally:
+        wb.close()
+
+
+def merge_tables_by_headers(
+    table_a: tuple[Sequence[str], Sequence[dict[str, object]]],
+    table_b: tuple[Sequence[str], Sequence[dict[str, object]]],
+    *,
+    include_source_column: bool = False,
+    source_header: str = "__source__",
+    source_a_value: str = "A",
+    source_b_value: str = "B",
+    deduplicate_rows: bool = False,
+) -> tuple[list[str], list[dict[str, object]]]:
+    """
+    Merge two tables by taking the union of headers and appending all rows.
+
+    This is a simple "stack rows" merge (not a key-based join).
+    """
+    headers_a, rows_a = table_a
+    headers_b, rows_b = table_b
+
+    headers: list[str] = []
+    for h in list(headers_a) + [h for h in headers_b if h not in headers_a]:
+        hs = str(h)
+        if hs not in headers:
+            headers.append(hs)
+
+    if include_source_column and source_header not in headers:
+        headers = [source_header] + headers
+
+    merged_rows: list[dict[str, object]] = []
+
+    def _append_rows(rows: Sequence[dict[str, object]], source_value: str) -> None:
+        for r in rows:
+            out: dict[str, object] = {}
+            if include_source_column:
+                out[source_header] = source_value
+            for h in headers:
+                if include_source_column and h == source_header:
+                    continue
+                out[h] = r.get(h)
+            merged_rows.append(out)
+
+    _append_rows(rows_a, source_a_value)
+    _append_rows(rows_b, source_b_value)
+
+    if deduplicate_rows:
+        seen: set[tuple[object, ...]] = set()
+        deduped: list[dict[str, object]] = []
+        for r in merged_rows:
+            key = tuple(r.get(h) for h in headers)
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(r)
+        merged_rows = deduped
+
+    return headers, merged_rows
+
+
+def write_table_to_workbook(
+    headers: Sequence[str],
+    rows: Sequence[dict[str, object]],
+    output_path: Path,
+    *,
+    sheet_name: str = "Merged",
+    autofit_columns: bool = True,
+) -> None:
+    """Write a header+row-dicts table to a new xlsx workbook."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = sheet_name
+
+    ws.append(list(headers))
+    for r in rows:
+        ws.append([r.get(h) for h in headers])
+
+    if autofit_columns and ws.max_row >= 1:
+        for col_idx, header in enumerate(headers, start=1):
+            col_letter = openpyxl.utils.get_column_letter(col_idx)
+            max_len = len(str(header)) if header is not None else 0
+            for row_idx in range(2, ws.max_row + 1):
+                v = ws.cell(row=row_idx, column=col_idx).value
+                if v is None:
+                    continue
+                max_len = max(max_len, len(str(v)))
+            ws.column_dimensions[col_letter].width = min(max_len + 2, 60)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(output_path)
+    wb.close()
+
+
+def merge_identical_cells_in_columns(
+    worksheet: openpyxl.worksheet.worksheet.Worksheet,
+    *,
+    columns: Optional[Iterable[int]] = None,
+    header_row: int = 1,
+    data_start_row: int = 2,
+    ignore_blanks: bool = True,
+    alignment: Alignment = DEFAULT_MERGED_CELL_ALIGNMENT,
+) -> None:
+    """
+    Merge consecutive identical values vertically within each column and center them.
+
+    This is a formatting operation only; it does not change the underlying values.
+    """
+    if worksheet.max_row < data_start_row:
+        return
+
+    if columns is None:
+        columns = range(1, worksheet.max_column + 1)
+
+    def _is_blank(v: object) -> bool:
+        if v is None:
+            return True
+        if isinstance(v, str) and v.strip() == "":
+            return True
+        return False
+
+    for col in columns:
+        run_start = data_start_row
+        prev = worksheet.cell(row=data_start_row, column=col).value
+
+        for row in range(data_start_row + 1, worksheet.max_row + 2):  # +2 to flush last run
+            cur = worksheet.cell(row=row, column=col).value if row <= worksheet.max_row else object()
+
+            prev_blank = _is_blank(prev) if ignore_blanks else False
+            cur_blank = _is_blank(cur) if ignore_blanks else False
+            same = (cur == prev) and not prev_blank and not cur_blank
+            if same:
+                continue
+
+            run_end = row - 1
+            if run_end > run_start and not prev_blank:
+                worksheet.merge_cells(
+                    start_row=run_start,
+                    start_column=col,
+                    end_row=run_end,
+                    end_column=col,
+                )
+                # Apply alignment to the merged region (top-left cell drives display)
+                for r in range(run_start, run_end + 1):
+                    worksheet.cell(row=r, column=col).alignment = alignment
+
+            run_start = row
+            prev = cur
+
+    # Center header row too (nice default)
+    header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    for col in range(1, worksheet.max_column + 1):
+        worksheet.cell(row=header_row, column=col).alignment = header_alignment
 
 
 class ExcelProcessor:
