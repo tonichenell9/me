@@ -1,0 +1,28 @@
+{
+    "email": {
+        "username": "your_email@example.com",
+        "password": "your_password",
+        "sender_email": "sender_address_here@example.com",
+        "imap_server": "outlook.office365.com",
+        "imap_port": 993,
+        "smtp_server": "smtp.office365.com",
+        "smtp_port": 587,
+        "use_outlook_for_sending": true,
+        "target_subject_keyword": "large trade td"
+    },
+    "excel": {
+        "master_workbook_path": "C:/path/to/your/master_workbook.xlsx",
+        "worksheet_1_name": "large deal report",
+        "worksheet_2_name": "summary",
+        "worksheet_3_name": "iphone compatible"
+    },
+    "distribution_list": [
+        "dist_list_1@example.com",
+        "dist_list_2@example.com"
+    ],
+    "reports_directory": "./reports",
+    "temp_directory": "./temp",
+    "sender_name": "Your Name",
+    "log_level": "INFO",
+    "log_file": "automation.log"
+}
