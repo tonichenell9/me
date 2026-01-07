@@ -297,10 +297,25 @@ Use the provided `run_report.sh` script:
 
 ## Excel Merge + Merge-and-Center Formatting (Standalone)
 
-If you just want to merge **two Excel spreadsheets** into one and then **merge + center** consecutive identical values **within each column**, use:
+If you just want to merge **two Excel spreadsheets** into one and then **merge + center** identical values **cascading left-to-right** (hierarchical grouping), use:
 
 ```bash
 python excel_merge_and_align.py --file-a "/path/to/a.xlsx" --file-b "/path/to/b.xlsx" --out "/path/to/output.xlsx"
+```
+
+### Key-based merge by column name (recommended)
+
+To merge the two spreadsheets by matching rows on a specific column name (e.g. `Entity ID`), use `--merge-on`:
+
+```bash
+python excel_merge_and_align.py --file-a a.xlsx --file-b b.xlsx --out merged.xlsx --merge-on "Entity ID"
+```
+
+This will perform a join (default `--how outer`) and then apply cascading merge+center formatting to visually group rows.
+For best grouping, also sort by the same column(s):
+
+```bash
+python excel_merge_and_align.py --file-a a.xlsx --file-b b.xlsx --out merged.xlsx --merge-on "Entity ID" --sort-by "Entity ID"
 ```
 
 Common options:
