@@ -224,6 +224,18 @@ chmod +x large_deal_report_automation.py
 ./large_deal_report_automation.py
 ```
 
+### Spreadsheet consolidation (case-insensitive column match + grouped/merged output)
+
+If you have two spreadsheets with similar columns (e.g. one uses `SEDOL` and the other uses `Sedol` / `Fund Type`), you can extract a fixed set of columns, merge the rows into one sheet, sort by **ISSUE NAME**, and apply hierarchical “merge & centre” grouping (ISSUE NAME → SEDOL → ISIN → …):
+
+```bash
+python3 merge_and_align.py consolidate corporate_actions.xlsx accounts_list.xlsx merged_output.xlsx
+```
+
+By default the output columns (uppercase) are:
+
+- `ISSUE NAME`, `SEDOL`, `ISIN`, `ISSUE COUNTRY NAME`, `STRATEGY`, `SUB STRATEGY`, `FUND TYPE`, `FUND NAME`
+
 ### One-Click Execution
 
 #### Windows
