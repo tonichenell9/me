@@ -49,6 +49,7 @@ class EmailHandler:
         self.password = email_config.get('password')
         self.incoming_subject_template = email_config.get('incoming_subject', 'large trade td')
         self.previous_report_subject_template = email_config.get('previous_report_subject', 'large deal report')
+        self.previous_report_folder = email_config.get('previous_report_folder', 'Large Deal Reports')
         self.imap_server = email_config.get('imap_server', 'outlook.office365.com')
         self.imap_port = email_config.get('imap_port', 993)
         self.smtp_server = email_config.get('smtp_server', 'smtp.office365.com')
@@ -201,7 +202,7 @@ class EmailHandler:
     def _download_previous_report_via_outlook(self, save_directory: Path) -> Path:
         """
         Download the previous report using Outlook COM interface.
-        Searches Sent Items first, then Inbox.
+        Searches in the configured folder (default: "Large Deal Reports" subfolder in Inbox).
         
         Args:
             save_directory: Directory to save the downloaded report
@@ -216,57 +217,69 @@ class EmailHandler:
         
         self.logger.info(f"Looking for report with subject containing '{search_subject}'")
         self.logger.info(f"Previous working day: {prev_day.strftime('%A, %d %B %Y')}")
+        self.logger.info(f"Searching in folder: '{self.previous_report_folder}'")
         
         try:
             outlook = win32com.client.Dispatch("Outlook.Application")
             namespace = outlook.GetNamespace("MAPI")
             
-            # Search in Sent Items first (folder 5), then Inbox (folder 6)
-            folders_to_search = [
-                (5, "Sent Items"),
-                (6, "Inbox")
-            ]
-            
             found_email = None
             
-            for folder_id, folder_name in folders_to_search:
-                self.logger.info(f"Searching in {folder_name}...")
+            # First try to find the specified subfolder under Inbox
+            try:
+                inbox = namespace.GetDefaultFolder(6)  # 6 = Inbox
                 
-                try:
-                    folder = namespace.GetDefaultFolder(folder_id)
-                    messages = folder.Items
-                    messages.Sort("[ReceivedTime]", True)  # Most recent first
+                # Try to find the subfolder
+                target_folder = None
+                
+                if self.previous_report_folder:
+                    # Search for the subfolder (case-insensitive)
+                    for folder in inbox.Folders:
+                        if folder.Name.lower() == self.previous_report_folder.lower():
+                            target_folder = folder
+                            self.logger.info(f"Found folder: '{folder.Name}'")
+                            break
                     
-                    for message in messages:
-                        try:
-                            subject = message.Subject if message.Subject else ""
-                            
-                            if search_subject.lower() in subject.lower():
-                                # Check if it has an Excel attachment
-                                if message.Attachments.Count > 0:
-                                    for i in range(1, message.Attachments.Count + 1):
-                                        attachment = message.Attachments.Item(i)
-                                        if attachment.FileName.lower().endswith(('.xlsx', '.xls')):
-                                            found_email = message
-                                            self.logger.info(f"Found report in {folder_name}: {subject}")
-                                            break
-                                if found_email:
-                                    break
-                        except Exception:
-                            continue
-                    
-                    if found_email:
-                        break
+                    if not target_folder:
+                        self.logger.warning(
+                            f"Folder '{self.previous_report_folder}' not found under Inbox. "
+                            "Searching in Inbox instead."
+                        )
+                        target_folder = inbox
+                else:
+                    target_folder = inbox
+                
+                # Search in the target folder
+                self.logger.info(f"Searching in '{target_folder.Name}'...")
+                messages = target_folder.Items
+                messages.Sort("[ReceivedTime]", True)  # Most recent first
+                
+                for message in messages:
+                    try:
+                        subject = message.Subject if message.Subject else ""
                         
-                except Exception as e:
-                    self.logger.warning(f"Could not search {folder_name}: {str(e)}")
-                    continue
+                        if search_subject.lower() in subject.lower():
+                            # Check if it has an Excel attachment
+                            if message.Attachments.Count > 0:
+                                for i in range(1, message.Attachments.Count + 1):
+                                    attachment = message.Attachments.Item(i)
+                                    if attachment.FileName.lower().endswith(('.xlsx', '.xls')):
+                                        found_email = message
+                                        self.logger.info(f"Found report: {subject}")
+                                        break
+                            if found_email:
+                                break
+                    except Exception:
+                        continue
+                        
+            except Exception as e:
+                self.logger.error(f"Error searching folder: {str(e)}")
             
             if not found_email:
                 raise Exception(
                     f"Could not find previous report with subject containing '{search_subject}'. "
-                    f"Searched in Sent Items and Inbox. "
-                    f"Please ensure you sent/received the report on {prev_day.strftime('%A, %d %B %Y')}."
+                    f"Searched in folder '{self.previous_report_folder}'. "
+                    f"Please ensure the report from {prev_day.strftime('%A, %d %B %Y')} is in this folder."
                 )
             
             # Download the Excel attachment

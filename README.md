@@ -93,6 +93,7 @@ Before starting, make sure you have:
   "email": {
     "incoming_subject": "large trade td",
     "previous_report_subject": "large deal report - {date_long}",
+    "previous_report_folder": "Large Deal Reports",
     "use_outlook": true,
     "preview_before_send": true
   },
@@ -112,7 +113,8 @@ Before starting, make sure you have:
 
 5. **What to change:**
    - `incoming_subject`: Subject of the "Large Trade TD" email you receive daily
-   - `previous_report_subject`: Subject of the report you sent yesterday (use `{date_long}` for the date)
+   - `previous_report_subject`: Subject of yesterday's report (use `{date_long}` for the date)
+   - `previous_report_folder`: The Outlook folder where Large Deal Reports are stored
    - `distribution_list`: Replace with your actual email addresses/distribution lists
    - `sender_name`: Replace with your name
    - `email_body`: Customise your email message (use `\n` for new lines)
@@ -137,11 +139,11 @@ Before starting, make sure you have:
 
 1. Make sure **Outlook is open** and you're logged in
 2. Make sure you have:
-   - An email with subject "large trade td" (today's daily data)
-   - The previous day's report in your Sent Items (e.g., "large deal report - 06 January 2026")
+   - An email with subject "large trade td" in your **Inbox** (today's daily data)
+   - The previous day's report in your **"Large Deal Reports"** folder (e.g., "large deal report - 06 January 2026")
 3. Double-click `run_report.bat`
 4. Watch the Command Prompt window - it will show progress:
-   - Step 1: Downloading previous report from Sent Items...
+   - Step 1: Downloading previous report from 'Large Deal Reports' folder...
    - Step 2: Downloading daily worksheet from 'Large Trade TD' email...
    - etc.
 5. When complete, Outlook will open with the email ready to send
@@ -185,6 +187,7 @@ Once set up, your daily workflow is simple:
 |---------|-------------|---------|
 | `incoming_subject` | Subject of the daily data email - uses **today's date** | `"large trade td"` |
 | `previous_report_subject` | Subject of previous report email - uses **previous working day's date** | `"large deal report"` |
+| `previous_report_folder` | Outlook folder to search for previous report (subfolder under Inbox) | `"Large Deal Reports"` |
 | `use_outlook` | Use Outlook for both reading and sending emails | `true` |
 | `preview_before_send` | Display email for review instead of auto-sending | `true` |
 | `distribution_list` | Array of email addresses to send the report to | Required |
@@ -239,6 +242,7 @@ You can include today's date in the email subject search using these placeholder
   "email": {
     "incoming_subject": "large trade td",
     "previous_report_subject": "large deal report - {date_long}",
+    "previous_report_folder": "Large Deal Reports",
     "use_outlook": true,
     "preview_before_send": true
   },
@@ -304,8 +308,8 @@ your-folder/
 ### Step-by-Step Process
 
 1. **Download Previous Report**: 
-   - Searches your **Sent Items** and **Inbox** in Outlook
-   - Finds the report you sent on the **previous working day**
+   - Searches your **"Large Deal Reports"** folder in Outlook (configurable)
+   - Finds the report from the **previous working day**
    - Downloads that Excel attachment to use as the base
 
 2. **Download Daily Data**: 
