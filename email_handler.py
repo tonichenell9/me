@@ -267,7 +267,7 @@ class EmailHandler:
         search_subject = self.get_previous_report_subject()
         prev_day = self.get_previous_working_day()
         
-        self.logger.info(f"Looking for report with subject containing '{search_subject}'")
+        self.logger.info(f"Looking for: '{search_subject}'")
         self.logger.info(f"Previous working day: {prev_day.strftime('%A, %d %B %Y')}")
         self.logger.info(f"Searching in folder: '{self.previous_report_folder}'")
         
@@ -281,6 +281,11 @@ class EmailHandler:
             try:
                 inbox = namespace.GetDefaultFolder(6)  # 6 = Inbox
                 
+                # List all available folders for debugging
+                self.logger.info("Available folders in Inbox:")
+                for folder in inbox.Folders:
+                    self.logger.info(f"  - '{folder.Name}'")
+                
                 # Try to find the subfolder
                 target_folder = None
                 
@@ -289,7 +294,7 @@ class EmailHandler:
                     for folder in inbox.Folders:
                         if folder.Name.lower() == self.previous_report_folder.lower():
                             target_folder = folder
-                            self.logger.info(f"Found folder: '{folder.Name}'")
+                            self.logger.info(f"Found matching folder: '{folder.Name}'")
                             break
                     
                     if not target_folder:
@@ -306,10 +311,29 @@ class EmailHandler:
                 messages = target_folder.Items
                 messages.Sort("[ReceivedTime]", True)  # Most recent first
                 
+                # Show recent emails for debugging
+                self.logger.info("Recent emails in this folder:")
+                count = 0
+                for message in messages:
+                    try:
+                        if count < 10:  # Show first 10
+                            subj = message.Subject if message.Subject else "(no subject)"
+                            self.logger.info(f"  - '{subj}'")
+                            count += 1
+                        else:
+                            break
+                    except:
+                        continue
+                
+                # Reset and search for matching email
+                messages = target_folder.Items
+                messages.Sort("[ReceivedTime]", True)
+                
                 for message in messages:
                     try:
                         subject = message.Subject if message.Subject else ""
                         
+                        # Check if subject contains our search term (case-insensitive)
                         if search_subject.lower() in subject.lower():
                             # Check if it has an Excel attachment
                             if message.Attachments.Count > 0:
@@ -317,7 +341,7 @@ class EmailHandler:
                                     attachment = message.Attachments.Item(i)
                                     if attachment.FileName.lower().endswith(('.xlsx', '.xls')):
                                         found_email = message
-                                        self.logger.info(f"Found report: {subject}")
+                                        self.logger.info(f"MATCH FOUND: '{subject}'")
                                         break
                             if found_email:
                                 break
@@ -329,9 +353,13 @@ class EmailHandler:
             
             if not found_email:
                 raise Exception(
-                    f"Could not find previous report with subject containing '{search_subject}'. "
-                    f"Searched in folder '{self.previous_report_folder}'. "
-                    f"Please ensure the report from {prev_day.strftime('%A, %d %B %Y')} is in this folder."
+                    f"\nCould not find previous report.\n"
+                    f"Searched for: '{search_subject}'\n"
+                    f"In folder: '{self.previous_report_folder}'\n"
+                    f"Please check:\n"
+                    f"  1. The folder name matches exactly\n"
+                    f"  2. The email subject matches the format above\n"
+                    f"  3. The email has an Excel attachment"
                 )
             
             # Download the Excel attachment
