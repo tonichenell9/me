@@ -1,7 +1,7 @@
 {
   "email": {
     "incoming_subject": "large trade td",
-    "_comment_incoming_subject": "You can use date placeholders: {date} = DD/MM/YYYY, {date_dash} = DD-MM-YYYY, {dd}, {mm}, {yyyy}. Example: 'large deal report - {date}'",
+    "_comment_incoming_subject": "Date placeholders: {date_long} = 07 January 2026, {date_long_day} = Tuesday, 07 January 2026, {date} = DD/MM/YYYY, {date_dash} = DD-MM-YYYY",
     "use_outlook": true,
     "preview_before_send": true,
     "username": "your_email@company.com",

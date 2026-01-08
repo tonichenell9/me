@@ -188,21 +188,37 @@ Once set up, your daily workflow is simple:
 
 You can include today's date in the email subject search using these placeholders:
 
+**Long Date Formats:**
+| Placeholder | Format | Example |
+|-------------|--------|---------|
+| `{date_long}` | DD Month YYYY | 07 January 2026 |
+| `{date_long_day}` | Day, DD Month YYYY | Tuesday, 07 January 2026 |
+
+**Short Date Formats:**
 | Placeholder | Format | Example |
 |-------------|--------|---------|
 | `{date}` | DD/MM/YYYY | 07/01/2026 |
 | `{date_dash}` | DD-MM-YYYY | 07-01-2026 |
 | `{date_dot}` | DD.MM.YYYY | 07.01.2026 |
-| `{dd}` | DD | 07 |
-| `{mm}` | MM | 01 |
-| `{yyyy}` | YYYY | 2026 |
-| `{yy}` | YY | 26 |
+
+**Individual Components:**
+| Placeholder | Format | Example |
+|-------------|--------|---------|
+| `{day_name}` | Day name | Tuesday |
+| `{month_name}` | Month name | January |
+| `{dd}` | Day (with zero) | 07 |
+| `{d}` | Day (no zero) | 7 |
+| `{mm}` | Month | 01 |
+| `{yyyy}` | Year | 2026 |
+| `{yy}` | Short year | 26 |
 
 **Examples:**
 ```json
-"incoming_subject": "large deal report - {date}"        // Searches for "large deal report - 07/01/2026"
-"incoming_subject": "large deal report - {date_dash}"  // Searches for "large deal report - 07-01-2026"
-"incoming_subject": "daily report {dd}/{mm}/{yy}"      // Searches for "daily report 07/01/26"
+"incoming_subject": "large deal report - {date_long}"       // "large deal report - 07 January 2026"
+"incoming_subject": "large deal report - {date_long_day}"  // "large deal report - Tuesday, 07 January 2026"
+"incoming_subject": "large deal report - {date}"           // "large deal report - 07/01/2026"
+"incoming_subject": "large deal report - {date_dash}"      // "large deal report - 07-01-2026"
+"incoming_subject": "report {d} {month_name} {yyyy}"       // "report 7 January 2026"
 ```
 
 ### Example config.json

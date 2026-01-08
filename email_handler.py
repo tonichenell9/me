@@ -78,13 +78,18 @@ class EmailHandler:
         Get the incoming email subject with date placeholders replaced.
         
         Supported placeholders:
-            {date}      - Today's date as DD/MM/YYYY (e.g., 07/01/2026)
-            {date_dash} - Today's date as DD-MM-YYYY (e.g., 07-01-2026)
-            {date_dot}  - Today's date as DD.MM.YYYY (e.g., 07.01.2026)
-            {dd}        - Day (e.g., 07)
-            {mm}        - Month (e.g., 01)
-            {yyyy}      - Year (e.g., 2026)
-            {yy}        - Short year (e.g., 26)
+            {date_long}      - Long date (e.g., 07 January 2026)
+            {date_long_day}  - Long date with day name (e.g., Tuesday, 07 January 2026)
+            {date}           - DD/MM/YYYY (e.g., 07/01/2026)
+            {date_dash}      - DD-MM-YYYY (e.g., 07-01-2026)
+            {date_dot}       - DD.MM.YYYY (e.g., 07.01.2026)
+            {day_name}       - Day name (e.g., Tuesday)
+            {month_name}     - Month name (e.g., January)
+            {dd}             - Day (e.g., 07)
+            {d}              - Day without leading zero (e.g., 7)
+            {mm}             - Month (e.g., 01)
+            {yyyy}           - Year (e.g., 2026)
+            {yy}             - Short year (e.g., 26)
         
         Returns:
             The subject string with placeholders replaced
@@ -92,10 +97,21 @@ class EmailHandler:
         now = datetime.now()
         
         subject = self.incoming_subject_template
+        
+        # Long date formats
+        subject = subject.replace('{date_long}', now.strftime('%d %B %Y'))  # 07 January 2026
+        subject = subject.replace('{date_long_day}', now.strftime('%A, %d %B %Y'))  # Tuesday, 07 January 2026
+        
+        # Short date formats
         subject = subject.replace('{date}', now.strftime('%d/%m/%Y'))
         subject = subject.replace('{date_dash}', now.strftime('%d-%m-%Y'))
         subject = subject.replace('{date_dot}', now.strftime('%d.%m.%Y'))
+        
+        # Individual components
+        subject = subject.replace('{day_name}', now.strftime('%A'))  # Tuesday
+        subject = subject.replace('{month_name}', now.strftime('%B'))  # January
         subject = subject.replace('{dd}', now.strftime('%d'))
+        subject = subject.replace('{d}', str(now.day))  # Day without leading zero
         subject = subject.replace('{mm}', now.strftime('%m'))
         subject = subject.replace('{yyyy}', now.strftime('%Y'))
         subject = subject.replace('{yy}', now.strftime('%y'))
