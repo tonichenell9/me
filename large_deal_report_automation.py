@@ -28,7 +28,7 @@ from excel_processor import ExcelProcessor
 class LargeDealReportAutomation:
     """Main automation class that orchestrates the report generation workflow."""
     
-    def __init__(self, config_path: str = 'config.json'):
+    def __init__(self, config_path: str = None):
         """
         Initialize the automation with configuration.
         
@@ -42,6 +42,15 @@ class LargeDealReportAutomation:
             handlers=[logging.StreamHandler(sys.stdout)]
         )
         self.logger = logging.getLogger(__name__)
+        
+        # Find config file - try config.txt first, then config.json
+        if config_path is None:
+            if os.path.exists('config.txt'):
+                config_path = 'config.txt'
+            elif os.path.exists('config.json'):
+                config_path = 'config.json'
+            else:
+                config_path = 'config.txt'  # Default for error message
         
         # Load configuration
         self.config = self.load_config(config_path)
@@ -132,8 +141,8 @@ class LargeDealReportAutomation:
             return config
             
         except FileNotFoundError:
-            print(f"Error: Configuration file '{config_path}' not found.")
-            print("Please create a config.json file from config.json.example")
+            print(f"Error: Configuration file not found.")
+            print("Please create a config.txt file in the same folder as this script.")
             print("See README.md for setup instructions.")
             sys.exit(1)
         except json.JSONDecodeError as e:

@@ -1,0 +1,14 @@
+{
+  "email": {
+    "incoming_subject": "large trade td",
+    "previous_report_subject": "large deal report - {date_long}",
+    "previous_report_folder": "Large Deal Reports",
+    "use_outlook": true,
+    "preview_before_send": true
+  },
+  "distribution_list": [
+    "REPLACE-THIS-WITH-YOUR-EMAIL@company.com"
+  ],
+  "sender_name": "REPLACE WITH YOUR NAME",
+  "email_body": "Hi all,\n\nPlease find attached today's Large Deal Report.\n\nKind regards,\nYOUR NAME"
+}
