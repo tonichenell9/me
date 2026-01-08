@@ -73,9 +73,10 @@ class EmailHandler:
         
         subject = self.incoming_subject_template
         
-        # Long date formats
-        subject = subject.replace('{date_long}', now.strftime('%d %B %Y'))
-        subject = subject.replace('{date_long_day}', now.strftime('%A, %d %B %Y'))
+        # Long date formats (no leading zero on day)
+        # {date_long} = "7 January 2026" (no leading zero)
+        subject = subject.replace('{date_long}', f"{now.day} {now.strftime('%B %Y')}")
+        subject = subject.replace('{date_long_day}', f"{now.strftime('%A')}, {now.day} {now.strftime('%B %Y')}")
         
         # Short date formats
         subject = subject.replace('{date}', now.strftime('%d/%m/%Y'))
@@ -132,9 +133,10 @@ class EmailHandler:
         
         subject = self.previous_report_subject_template
         
-        # Long date formats
-        subject = subject.replace('{date_long}', prev_day.strftime('%d %B %Y'))
-        subject = subject.replace('{date_long_day}', prev_day.strftime('%A, %d %B %Y'))
+        # Long date formats (no leading zero on day)
+        # {date_long} = "7 January 2026" (no leading zero)
+        subject = subject.replace('{date_long}', f"{prev_day.day} {prev_day.strftime('%B %Y')}")
+        subject = subject.replace('{date_long_day}', f"{prev_day.strftime('%A')}, {prev_day.day} {prev_day.strftime('%B %Y')}")
         
         # Short date formats
         subject = subject.replace('{date}', prev_day.strftime('%d/%m/%Y'))
