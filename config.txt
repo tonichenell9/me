@@ -1,14 +1,30 @@
-{
-  "email": {
-    "incoming_subject": "large trade td",
-    "previous_report_subject": "large deal report - {date_long}",
-    "previous_report_folder": "Large Deal Reports",
-    "use_outlook": true,
-    "preview_before_send": true
-  },
-  "distribution_list": [
-    "REPLACE-THIS-WITH-YOUR-EMAIL@company.com"
-  ],
-  "sender_name": "REPLACE WITH YOUR NAME",
-  "email_body": "Hi all,\n\nPlease find attached today's Large Deal Report.\n\nKind regards,\nYOUR NAME"
-}
+# Large Deal Report Automation - Configuration
+# Edit the values after the = sign
+# Lines starting with # are comments (ignored)
+
+# Email Settings
+incoming_subject = large trade td
+previous_report_subject = large deal report - {date_long}
+previous_report_folder = Large Deal Reports
+preview_before_send = yes
+
+# Recipients (one email per line, add more as needed)
+distribution_list = your-email@company.com
+
+# Your Details
+sender_name = Your Name
+email_body = Hi all,
+
+Please find attached today's Large Deal Report.
+
+Kind regards,
+Your Name
+
+# Excel Sheet Names (usually don't need to change these)
+large_deal_report_sheet = large deal report
+summary_sheet = summary
+iphone_compatible_sheet = iphone compatible
+
+# Folders
+reports_directory = ./reports
+temp_directory = ./temp
