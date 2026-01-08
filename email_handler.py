@@ -398,18 +398,37 @@ class EmailHandler:
             attachment_path = None
             attachments = found_email.Attachments
             
+            self.logger.info(f"Downloading attachment from email...")
+            self.logger.info(f"Number of attachments: {attachments.Count}")
+            
             for i in range(1, attachments.Count + 1):
                 attachment = attachments.Item(i)
                 filename = attachment.FileName
+                self.logger.info(f"Checking attachment: '{filename}'")
                 
-                if filename.lower().endswith(('.xlsx', '.xls')):
-                    attachment_path = save_directory / f"previous_report.xlsx"
+                # Flexible check for Excel files
+                filename_lower = filename.lower().strip()
+                is_excel = (
+                    '.xlsx' in filename_lower or 
+                    '.xls' in filename_lower or
+                    filename_lower.endswith('.xlsx') or
+                    filename_lower.endswith('.xls')
+                )
+                
+                if is_excel:
+                    attachment_path = save_directory / "previous_report.xlsx"
+                    self.logger.info(f"Saving to: {attachment_path}")
                     attachment.SaveAsFile(str(attachment_path))
-                    self.logger.info(f"Downloaded previous report: {filename} -> {attachment_path}")
+                    self.logger.info(f"Downloaded: '{filename}'")
                     break
+                else:
+                    self.logger.info(f"  Not an Excel file, skipping")
             
             if not attachment_path or not attachment_path.exists():
-                raise Exception("No Excel attachment found in the previous report email.")
+                raise Exception(
+                    f"No Excel attachment found in the previous report email.\n"
+                    f"Attachments in email: {attachments.Count}"
+                )
             
             return attachment_path
             
