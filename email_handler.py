@@ -333,23 +333,35 @@ class EmailHandler:
                 messages = target_folder.Items
                 messages.Sort("[ReceivedTime]", True)
                 
+                self.logger.info(f"\nSearching for subject containing: '{search_subject}'")
+                
                 for message in messages:
                     try:
                         subject = message.Subject if message.Subject else ""
                         
                         # Check if subject contains our search term (case-insensitive)
                         if search_subject.lower() in subject.lower():
+                            self.logger.info(f"Subject MATCH: '{subject}'")
+                            
                             # Check if it has an Excel attachment
                             if message.Attachments.Count > 0:
+                                self.logger.info(f"  Attachments found: {message.Attachments.Count}")
                                 for i in range(1, message.Attachments.Count + 1):
                                     attachment = message.Attachments.Item(i)
+                                    self.logger.info(f"    - '{attachment.FileName}'")
                                     if attachment.FileName.lower().endswith(('.xlsx', '.xls')):
                                         found_email = message
-                                        self.logger.info(f"MATCH FOUND: '{subject}'")
+                                        self.logger.info(f"  Excel file FOUND - using this email")
                                         break
+                                if not found_email:
+                                    self.logger.info(f"  No Excel attachment in this email")
+                            else:
+                                self.logger.info(f"  No attachments in this email")
+                            
                             if found_email:
                                 break
-                    except Exception:
+                    except Exception as e:
+                        self.logger.warning(f"Error checking email: {str(e)}")
                         continue
                         
             except Exception as e:
