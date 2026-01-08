@@ -48,6 +48,7 @@ class EmailHandler:
         self.username = email_config.get('username')
         self.password = email_config.get('password')
         self.incoming_subject_template = email_config.get('incoming_subject', 'large trade td')
+        self.previous_report_subject_template = email_config.get('previous_report_subject', 'large deal report')
         self.imap_server = email_config.get('imap_server', 'outlook.office365.com')
         self.imap_port = email_config.get('imap_port', 993)
         self.smtp_server = email_config.get('smtp_server', 'smtp.office365.com')
@@ -117,6 +118,273 @@ class EmailHandler:
         subject = subject.replace('{yy}', now.strftime('%y'))
         
         return subject
+    
+    def get_previous_working_day(self) -> datetime:
+        """
+        Get the previous working day (Monday-Friday).
+        If today is Monday, returns Friday.
+        If today is Sunday, returns Friday.
+        If today is Saturday, returns Friday.
+        Otherwise returns yesterday.
+        
+        Note: Does not account for bank holidays.
+        
+        Returns:
+            datetime object for the previous working day
+        """
+        today = datetime.now()
+        
+        # weekday() returns 0=Monday, 1=Tuesday, ..., 6=Sunday
+        if today.weekday() == 0:  # Monday -> Friday
+            days_back = 3
+        elif today.weekday() == 6:  # Sunday -> Friday
+            days_back = 2
+        elif today.weekday() == 5:  # Saturday -> Friday
+            days_back = 1
+        else:  # Tuesday-Friday -> previous day
+            days_back = 1
+        
+        from datetime import timedelta
+        return today - timedelta(days=days_back)
+    
+    def get_previous_report_subject(self) -> str:
+        """
+        Get the previous report email subject with date placeholders replaced
+        using the previous working day's date.
+        
+        Returns:
+            The subject string with placeholders replaced for previous working day
+        """
+        prev_day = self.get_previous_working_day()
+        
+        subject = self.previous_report_subject_template
+        
+        # Long date formats
+        subject = subject.replace('{date_long}', prev_day.strftime('%d %B %Y'))
+        subject = subject.replace('{date_long_day}', prev_day.strftime('%A, %d %B %Y'))
+        
+        # Short date formats
+        subject = subject.replace('{date}', prev_day.strftime('%d/%m/%Y'))
+        subject = subject.replace('{date_dash}', prev_day.strftime('%d-%m-%Y'))
+        subject = subject.replace('{date_dot}', prev_day.strftime('%d.%m.%Y'))
+        
+        # Individual components
+        subject = subject.replace('{day_name}', prev_day.strftime('%A'))
+        subject = subject.replace('{month_name}', prev_day.strftime('%B'))
+        subject = subject.replace('{dd}', prev_day.strftime('%d'))
+        subject = subject.replace('{d}', str(prev_day.day))
+        subject = subject.replace('{mm}', prev_day.strftime('%m'))
+        subject = subject.replace('{yyyy}', prev_day.strftime('%Y'))
+        subject = subject.replace('{yy}', prev_day.strftime('%y'))
+        
+        return subject
+    
+    def download_previous_report(self, save_directory: Path) -> Path:
+        """
+        Download the previous working day's report from sent items or inbox.
+        This is the report we sent out yesterday that we'll update with today's data.
+        
+        Args:
+            save_directory: Directory to save the downloaded report
+            
+        Returns:
+            Path to the downloaded report file
+            
+        Raises:
+            Exception: If report cannot be found or downloaded
+        """
+        if self.use_outlook:
+            return self._download_previous_report_via_outlook(save_directory)
+        else:
+            return self._download_previous_report_via_imap(save_directory)
+    
+    def _download_previous_report_via_outlook(self, save_directory: Path) -> Path:
+        """
+        Download the previous report using Outlook COM interface.
+        Searches Sent Items first, then Inbox.
+        
+        Args:
+            save_directory: Directory to save the downloaded report
+            
+        Returns:
+            Path to the downloaded report file
+        """
+        self.logger.info("Searching for previous day's report in Outlook...")
+        
+        search_subject = self.get_previous_report_subject()
+        prev_day = self.get_previous_working_day()
+        
+        self.logger.info(f"Looking for report with subject containing '{search_subject}'")
+        self.logger.info(f"Previous working day: {prev_day.strftime('%A, %d %B %Y')}")
+        
+        try:
+            outlook = win32com.client.Dispatch("Outlook.Application")
+            namespace = outlook.GetNamespace("MAPI")
+            
+            # Search in Sent Items first (folder 5), then Inbox (folder 6)
+            folders_to_search = [
+                (5, "Sent Items"),
+                (6, "Inbox")
+            ]
+            
+            found_email = None
+            
+            for folder_id, folder_name in folders_to_search:
+                self.logger.info(f"Searching in {folder_name}...")
+                
+                try:
+                    folder = namespace.GetDefaultFolder(folder_id)
+                    messages = folder.Items
+                    messages.Sort("[ReceivedTime]", True)  # Most recent first
+                    
+                    for message in messages:
+                        try:
+                            subject = message.Subject if message.Subject else ""
+                            
+                            if search_subject.lower() in subject.lower():
+                                # Check if it has an Excel attachment
+                                if message.Attachments.Count > 0:
+                                    for i in range(1, message.Attachments.Count + 1):
+                                        attachment = message.Attachments.Item(i)
+                                        if attachment.FileName.lower().endswith(('.xlsx', '.xls')):
+                                            found_email = message
+                                            self.logger.info(f"Found report in {folder_name}: {subject}")
+                                            break
+                                if found_email:
+                                    break
+                        except Exception:
+                            continue
+                    
+                    if found_email:
+                        break
+                        
+                except Exception as e:
+                    self.logger.warning(f"Could not search {folder_name}: {str(e)}")
+                    continue
+            
+            if not found_email:
+                raise Exception(
+                    f"Could not find previous report with subject containing '{search_subject}'. "
+                    f"Searched in Sent Items and Inbox. "
+                    f"Please ensure you sent/received the report on {prev_day.strftime('%A, %d %B %Y')}."
+                )
+            
+            # Download the Excel attachment
+            attachment_path = None
+            attachments = found_email.Attachments
+            
+            for i in range(1, attachments.Count + 1):
+                attachment = attachments.Item(i)
+                filename = attachment.FileName
+                
+                if filename.lower().endswith(('.xlsx', '.xls')):
+                    attachment_path = save_directory / f"previous_report.xlsx"
+                    attachment.SaveAsFile(str(attachment_path))
+                    self.logger.info(f"Downloaded previous report: {filename} -> {attachment_path}")
+                    break
+            
+            if not attachment_path or not attachment_path.exists():
+                raise Exception("No Excel attachment found in the previous report email.")
+            
+            return attachment_path
+            
+        except Exception as e:
+            self.logger.error(f"Error downloading previous report: {str(e)}")
+            raise
+    
+    def _download_previous_report_via_imap(self, save_directory: Path) -> Path:
+        """
+        Download the previous report using IMAP.
+        
+        Args:
+            save_directory: Directory to save the downloaded report
+            
+        Returns:
+            Path to the downloaded report file
+        """
+        self.logger.info("Searching for previous day's report via IMAP...")
+        
+        search_subject = self.get_previous_report_subject()
+        prev_day = self.get_previous_working_day()
+        
+        self.logger.info(f"Looking for report with subject containing '{search_subject}'")
+        
+        mail = None
+        
+        try:
+            mail = imaplib.IMAP4_SSL(self.imap_server, self.imap_port)
+            mail.login(self.username, self.password)
+            
+            # Try Sent folder first, then Inbox
+            folders_to_try = ['"[Gmail]/Sent Mail"', '"Sent Items"', '"Sent"', 'INBOX']
+            
+            found_email_data = None
+            
+            for folder in folders_to_try:
+                try:
+                    status, _ = mail.select(folder)
+                    if status != 'OK':
+                        continue
+                    
+                    self.logger.info(f"Searching in {folder}...")
+                    
+                    search_criteria = f'(SUBJECT "{search_subject}")'
+                    status, messages = mail.search(None, search_criteria)
+                    
+                    if status == 'OK' and messages[0]:
+                        email_ids = messages[0].split()
+                        if email_ids:
+                            # Get the most recent
+                            latest_email_id = email_ids[-1]
+                            status, msg_data = mail.fetch(latest_email_id, '(RFC822)')
+                            if status == 'OK':
+                                found_email_data = msg_data[0][1]
+                                self.logger.info(f"Found report in {folder}")
+                                break
+                except Exception as e:
+                    self.logger.debug(f"Could not search {folder}: {str(e)}")
+                    continue
+            
+            if not found_email_data:
+                raise Exception(
+                    f"Could not find previous report with subject containing '{search_subject}'. "
+                    f"Please ensure you sent/received the report on {prev_day.strftime('%A, %d %B %Y')}."
+                )
+            
+            # Parse email and extract attachment
+            msg = email.message_from_bytes(found_email_data)
+            
+            attachment_path = None
+            for part in msg.walk():
+                content_disposition = part.get_content_disposition()
+                if content_disposition == 'attachment':
+                    filename = part.get_filename()
+                    if filename:
+                        decoded_filename = decode_header(filename)[0][0]
+                        if isinstance(decoded_filename, bytes):
+                            filename = decoded_filename.decode()
+                        
+                        if filename.lower().endswith(('.xlsx', '.xls')):
+                            attachment_path = save_directory / f"previous_report.xlsx"
+                            with open(attachment_path, 'wb') as f:
+                                payload = part.get_payload(decode=True)
+                                if payload:
+                                    f.write(payload)
+                            self.logger.info(f"Downloaded previous report: {filename} -> {attachment_path}")
+                            break
+            
+            if not attachment_path or not attachment_path.exists():
+                raise Exception("No Excel attachment found in the previous report email.")
+            
+            return attachment_path
+            
+        finally:
+            if mail:
+                try:
+                    mail.close()
+                    mail.logout()
+                except:
+                    pass
     
     def download_daily_attachment(self, save_directory: Path, current_date: str) -> Path:
         """

@@ -3,12 +3,13 @@
 **One-click automation for the daily Large Deal Report workflow on Windows 11.**
 
 This Python script automates your entire daily reporting process:
-1. Downloads the daily worksheet from your "large trade td" email
-2. Pastes the data into your workbook
-3. Refreshes the summary table
-4. Creates the iPhone compatible version (values only)
-5. Saves the report with today's date
-6. Opens an email preview for you to review before sending
+1. Downloads the **previous day's report** from your sent items/inbox
+2. Downloads the **daily worksheet** from your "large trade td" email
+3. Pastes the daily data into the workbook
+4. Refreshes the summary table
+5. Creates the iPhone compatible version (values only)
+6. Saves the report with today's date
+7. Opens an email preview for you to review before sending
 
 ---
 
@@ -91,6 +92,7 @@ Before starting, make sure you have:
 {
   "email": {
     "incoming_subject": "large trade td",
+    "previous_report_subject": "large deal report - {date_long}",
     "use_outlook": true,
     "preview_before_send": true
   },
@@ -109,21 +111,24 @@ Before starting, make sure you have:
 ```
 
 5. **What to change:**
+   - `incoming_subject`: Subject of the "Large Trade TD" email you receive daily
+   - `previous_report_subject`: Subject of the report you sent yesterday (use `{date_long}` for the date)
    - `distribution_list`: Replace with your actual email addresses/distribution lists
    - `sender_name`: Replace with your name
    - `email_body`: Customise your email message (use `\n` for new lines)
 
 6. Save the file (Ctrl + S) and close Notepad
 
-### Step 6: Set Up the Reports Folder
+### Step 6: Create the Reports Folder
 
 1. In your script folder, create a new folder called `reports`
    - Right-click in empty space → New → Folder → name it `reports`
 
-2. Copy your existing Large Deal Report workbook into this `reports` folder
-   - This will be used as the template
+2. This folder will store the new reports you generate each day
 
-3. **Important:** Make sure your workbook has these exact worksheet names (tabs):
+3. **Note:** The script will automatically download the previous day's report from your email, so you don't need to manually copy anything here.
+
+4. **Important:** Your report workbook (that you send daily) must have these worksheet names:
    - `large deal report` (where the daily data goes)
    - `summary` (with your table that needs refreshing)
    - `iphone compatible` (for the values-only copy)
@@ -131,9 +136,14 @@ Before starting, make sure you have:
 ### Step 7: Test the Setup
 
 1. Make sure **Outlook is open** and you're logged in
-2. Make sure you have received an email with subject containing "large trade td"
+2. Make sure you have:
+   - An email with subject "large trade td" (today's daily data)
+   - The previous day's report in your Sent Items (e.g., "large deal report - 06 January 2026")
 3. Double-click `run_report.bat`
-4. Watch the Command Prompt window - it will show progress
+4. Watch the Command Prompt window - it will show progress:
+   - Step 1: Downloading previous report from Sent Items...
+   - Step 2: Downloading daily worksheet from 'Large Trade TD' email...
+   - etc.
 5. When complete, Outlook will open with the email ready to send
 6. **Review the email** and click Send when ready
 
@@ -173,13 +183,14 @@ Once set up, your daily workflow is simple:
 
 | Setting | Description | Default |
 |---------|-------------|---------|
-| `incoming_subject` | Subject line to search for in incoming emails (supports date placeholders) | `"large trade td"` |
+| `incoming_subject` | Subject of the daily data email - uses **today's date** | `"large trade td"` |
+| `previous_report_subject` | Subject of previous report email - uses **previous working day's date** | `"large deal report"` |
 | `use_outlook` | Use Outlook for both reading and sending emails | `true` |
 | `preview_before_send` | Display email for review instead of auto-sending | `true` |
 | `distribution_list` | Array of email addresses to send the report to | Required |
 | `sender_name` | Your name for the email signature | Required |
 | `email_body` | Custom email body text (use `\n` for new lines) | Auto-generated |
-| `reports_directory` | Folder containing your report workbooks | `"./reports"` |
+| `reports_directory` | Folder where new reports are saved | `"./reports"` |
 | `large_deal_report_sheet` | Name of the data input worksheet | `"large deal report"` |
 | `summary_sheet` | Name of the summary worksheet | `"summary"` |
 | `iphone_compatible_sheet` | Name of the iPhone output worksheet | `"iphone compatible"` |
@@ -227,6 +238,7 @@ You can include today's date in the email subject search using these placeholder
 {
   "email": {
     "incoming_subject": "large trade td",
+    "previous_report_subject": "large deal report - {date_long}",
     "use_outlook": true,
     "preview_before_send": true
   },
@@ -291,17 +303,19 @@ your-folder/
 
 ### Step-by-Step Process
 
-1. **Find Latest Report**: Locates the most recent report in your `reports` folder to use as a template
+1. **Download Previous Report**: 
+   - Searches your **Sent Items** and **Inbox** in Outlook
+   - Finds the report you sent on the **previous working day**
+   - Downloads that Excel attachment to use as the base
 
-2. **Download Email Attachment**: 
-   - Connects to Outlook
-   - Searches for emails with subject containing "large trade td"
-   - Downloads the Excel attachment from the most recent matching email
+2. **Download Daily Data**: 
+   - Searches your Inbox for the "large trade td" email
+   - Downloads the Excel attachment with today's trading data
 
 3. **Update 'large deal report' Sheet**:
-   - Clears existing data
-   - Pastes the downloaded data starting at cell A1
-   - Preserves formatting
+   - Opens the previous day's report
+   - Clears the 'large deal report' sheet
+   - Pastes today's data starting at cell A1
 
 4. **Refresh 'summary' Sheet**:
    - Uses Excel automation (xlwings) to refresh tables/pivots
@@ -321,6 +335,11 @@ your-folder/
    - Attaches the report
    - **Opens in Outlook for your review** (doesn't auto-send)
    - You click Send when ready
+
+### Working Days
+The script automatically handles weekends:
+- **Monday**: Downloads Friday's report
+- **Tuesday-Friday**: Downloads the previous day's report
 
 ## Troubleshooting
 

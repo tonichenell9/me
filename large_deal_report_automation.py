@@ -215,7 +215,7 @@ class LargeDealReportAutomation:
         Execute the complete automation process.
         
         Workflow:
-        1. Find the latest existing report (template)
+        1. Download the previous day's report from email (sent items/inbox)
         2. Download the daily worksheet from "large trade td" email
         3. Paste data into 'large deal report' sheet starting at A1
         4. Refresh the 'summary' sheet (table refresh)
@@ -228,6 +228,7 @@ class LargeDealReportAutomation:
         """
         workbook = None
         daily_sheet_path = None
+        previous_report_path = None
         new_report_path = None
         
         try:
@@ -236,20 +237,20 @@ class LargeDealReportAutomation:
             self.logger.info(f"Date: {self.current_date_display}")
             self.logger.info("=" * 60)
             
-            # Step 1: Find latest report (this is the template we'll modify)
-            self.logger.info("\nStep 1: Finding latest report template...")
-            latest_report_path = self.find_latest_report()
+            # Step 1: Download previous day's report from email
+            self.logger.info("\nStep 1: Downloading previous day's report from email...")
+            previous_report_path = self.email_handler.download_previous_report(self.temp_dir)
             
             # Step 2: Download daily email attachment (from "large trade td" email)
-            self.logger.info("\nStep 2: Downloading daily worksheet from email...")
+            self.logger.info("\nStep 2: Downloading daily worksheet from 'Large Trade TD' email...")
             daily_sheet_path = self.email_handler.download_daily_attachment(
                 self.temp_dir, 
                 self.current_date_iso
             )
             
-            # Step 3: Load workbook and update 'large deal report' sheet with daily data
-            self.logger.info("\nStep 3: Updating 'large deal report' worksheet...")
-            workbook = self.excel_processor.load_workbook(latest_report_path)
+            # Step 3: Load the previous report and update 'large deal report' sheet with daily data
+            self.logger.info("\nStep 3: Updating 'large deal report' worksheet with today's data...")
+            workbook = self.excel_processor.load_workbook(previous_report_path)
             self.excel_processor.update_large_deal_report_sheet(workbook, daily_sheet_path)
             
             # Step 4: Save intermediate version before xlwings refresh
