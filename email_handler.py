@@ -47,7 +47,7 @@ class EmailHandler:
         self.email_config = email_config
         self.username = email_config.get('username')
         self.password = email_config.get('password')
-        self.incoming_subject = email_config.get('incoming_subject', 'large trade td')
+        self.incoming_subject_template = email_config.get('incoming_subject', 'large trade td')
         self.imap_server = email_config.get('imap_server', 'outlook.office365.com')
         self.imap_port = email_config.get('imap_port', 993)
         self.smtp_server = email_config.get('smtp_server', 'smtp.office365.com')
@@ -73,6 +73,35 @@ class EmailHandler:
                     "when not using Outlook."
                 )
     
+    def get_incoming_subject(self) -> str:
+        """
+        Get the incoming email subject with date placeholders replaced.
+        
+        Supported placeholders:
+            {date}      - Today's date as DD/MM/YYYY (e.g., 07/01/2026)
+            {date_dash} - Today's date as DD-MM-YYYY (e.g., 07-01-2026)
+            {date_dot}  - Today's date as DD.MM.YYYY (e.g., 07.01.2026)
+            {dd}        - Day (e.g., 07)
+            {mm}        - Month (e.g., 01)
+            {yyyy}      - Year (e.g., 2026)
+            {yy}        - Short year (e.g., 26)
+        
+        Returns:
+            The subject string with placeholders replaced
+        """
+        now = datetime.now()
+        
+        subject = self.incoming_subject_template
+        subject = subject.replace('{date}', now.strftime('%d/%m/%Y'))
+        subject = subject.replace('{date_dash}', now.strftime('%d-%m-%Y'))
+        subject = subject.replace('{date_dot}', now.strftime('%d.%m.%Y'))
+        subject = subject.replace('{dd}', now.strftime('%d'))
+        subject = subject.replace('{mm}', now.strftime('%m'))
+        subject = subject.replace('{yyyy}', now.strftime('%Y'))
+        subject = subject.replace('{yy}', now.strftime('%y'))
+        
+        return subject
+    
     def download_daily_attachment(self, save_directory: Path, current_date: str) -> Path:
         """
         Download the daily worksheet attachment from email.
@@ -96,7 +125,7 @@ class EmailHandler:
     def _download_via_outlook(self, save_directory: Path, current_date: str) -> Path:
         """
         Download the daily worksheet using Outlook COM interface.
-        Searches for emails with subject containing 'large trade td'.
+        Searches for emails with subject containing the configured pattern.
         
         Args:
             save_directory: Directory to save the downloaded attachment
@@ -107,12 +136,15 @@ class EmailHandler:
         """
         self.logger.info("Connecting to Outlook...")
         
+        # Get the subject with date placeholders replaced
+        search_subject = self.get_incoming_subject()
+        
         try:
             outlook = win32com.client.Dispatch("Outlook.Application")
             namespace = outlook.GetNamespace("MAPI")
             inbox = namespace.GetDefaultFolder(6)  # 6 = olFolderInbox
             
-            self.logger.info(f"Searching for emails with subject containing '{self.incoming_subject}'...")
+            self.logger.info(f"Searching for emails with subject containing '{search_subject}'...")
             
             # Get all inbox items and filter by subject
             messages = inbox.Items
@@ -128,7 +160,7 @@ class EmailHandler:
                     subject = message.Subject.lower() if message.Subject else ""
                     received_date = message.ReceivedTime.date()
                     
-                    if self.incoming_subject.lower() in subject:
+                    if search_subject.lower() in subject:
                         if received_date == today:
                             found_email = message
                             self.logger.info(f"Found today's email: {message.Subject}")
@@ -142,7 +174,7 @@ class EmailHandler:
                 for message in messages:
                     try:
                         subject = message.Subject.lower() if message.Subject else ""
-                        if self.incoming_subject.lower() in subject:
+                        if search_subject.lower() in subject:
                             found_email = message
                             self.logger.info(f"Found recent email: {message.Subject}")
                             break
@@ -151,7 +183,7 @@ class EmailHandler:
             
             if not found_email:
                 raise Exception(
-                    f"No emails found with subject containing '{self.incoming_subject}'. "
+                    f"No emails found with subject containing '{search_subject}'. "
                     "Please ensure you have received the daily email."
                 )
             
@@ -184,7 +216,7 @@ class EmailHandler:
     def _download_via_imap(self, save_directory: Path, current_date: str) -> Path:
         """
         Download the daily worksheet using IMAP.
-        Searches for emails with subject containing 'large trade td'.
+        Searches for emails with subject containing the configured pattern.
         
         Args:
             save_directory: Directory to save the downloaded attachment
@@ -196,6 +228,9 @@ class EmailHandler:
         self.logger.info("Connecting to email server via IMAP...")
         mail = None
         
+        # Get the subject with date placeholders replaced
+        search_subject = self.get_incoming_subject()
+        
         try:
             # Connect to email server
             self.logger.debug(f"Connecting to IMAP server: {self.imap_server}:{self.imap_port}")
@@ -203,11 +238,11 @@ class EmailHandler:
             mail.login(self.username, self.password)
             mail.select('inbox')
             
-            self.logger.info(f"Searching for emails with subject containing '{self.incoming_subject}'...")
+            self.logger.info(f"Searching for emails with subject containing '{search_subject}'...")
             
             # Search for emails by subject from today
             today = datetime.now().strftime('%d-%b-%Y')
-            search_criteria = f'(SUBJECT "{self.incoming_subject}" SINCE {today})'
+            search_criteria = f'(SUBJECT "{search_subject}" SINCE {today})'
             status, messages = mail.search(None, search_criteria)
             
             if status != 'OK':
@@ -218,7 +253,7 @@ class EmailHandler:
             # If no emails from today, try without date restriction (get most recent)
             if not email_ids:
                 self.logger.warning("No emails found from today. Searching for most recent email...")
-                search_criteria = f'(SUBJECT "{self.incoming_subject}")'
+                search_criteria = f'(SUBJECT "{search_subject}")'
                 status, messages = mail.search(None, search_criteria)
                 
                 if status != 'OK':
@@ -228,7 +263,7 @@ class EmailHandler:
             
             if not email_ids:
                 raise Exception(
-                    f"No emails found with subject containing '{self.incoming_subject}'. "
+                    f"No emails found with subject containing '{search_subject}'. "
                     "Please ensure you have received the daily email."
                 )
             

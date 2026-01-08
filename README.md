@@ -173,7 +173,7 @@ Once set up, your daily workflow is simple:
 
 | Setting | Description | Default |
 |---------|-------------|---------|
-| `incoming_subject` | Subject line to search for in incoming emails | `"large trade td"` |
+| `incoming_subject` | Subject line to search for in incoming emails (supports date placeholders) | `"large trade td"` |
 | `use_outlook` | Use Outlook for both reading and sending emails | `true` |
 | `preview_before_send` | Display email for review instead of auto-sending | `true` |
 | `distribution_list` | Array of email addresses to send the report to | Required |
@@ -183,6 +183,27 @@ Once set up, your daily workflow is simple:
 | `large_deal_report_sheet` | Name of the data input worksheet | `"large deal report"` |
 | `summary_sheet` | Name of the summary worksheet | `"summary"` |
 | `iphone_compatible_sheet` | Name of the iPhone output worksheet | `"iphone compatible"` |
+
+### Date Placeholders for incoming_subject
+
+You can include today's date in the email subject search using these placeholders:
+
+| Placeholder | Format | Example |
+|-------------|--------|---------|
+| `{date}` | DD/MM/YYYY | 07/01/2026 |
+| `{date_dash}` | DD-MM-YYYY | 07-01-2026 |
+| `{date_dot}` | DD.MM.YYYY | 07.01.2026 |
+| `{dd}` | DD | 07 |
+| `{mm}` | MM | 01 |
+| `{yyyy}` | YYYY | 2026 |
+| `{yy}` | YY | 26 |
+
+**Examples:**
+```json
+"incoming_subject": "large deal report - {date}"        // Searches for "large deal report - 07/01/2026"
+"incoming_subject": "large deal report - {date_dash}"  // Searches for "large deal report - 07-01-2026"
+"incoming_subject": "daily report {dd}/{mm}/{yy}"      // Searches for "daily report 07/01/26"
+```
 
 ### Example config.json
 
