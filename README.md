@@ -99,21 +99,14 @@ Before starting, make sure you have:
   },
   "distribution_list": [
     "first-distribution-list@yourcompany.com",
-    "second-distribution-list@yourcompany.com",
-    "manager@yourcompany.com"
+    "second-distribution-list@yourcompany.com"
   ],
   "sender_name": "Your Actual Name",
-  "email_body": "Hi all,\n\nPlease find attached today's Large Deal Report.\n\nKind regards,\nYour Name",
-  "reports_directory": "./reports",
-  "large_deal_report_sheet": "large deal report",
-  "summary_sheet": "summary",
-  "iphone_compatible_sheet": "iphone compatible"
+  "email_body": "Hi all,\n\nPlease find attached today's Large Deal Report.\n\nKind regards,\nYour Name"
 }
 ```
 
 5. **What to change:**
-   - `incoming_subject`: Subject of the "Large Trade TD" email you receive daily
-   - `previous_report_subject`: Subject of yesterday's report (use `{date_long}` for the date)
    - `previous_report_folder`: The Outlook folder where Large Deal Reports are stored
    - `distribution_list`: Replace with your actual email addresses/distribution lists
    - `sender_name`: Replace with your name
@@ -183,15 +176,24 @@ Once set up, your daily workflow is simple:
 
 ### All Configuration Options
 
+**Email Settings (in `email` section):**
 | Setting | Description | Default |
 |---------|-------------|---------|
-| `incoming_subject` | Subject of the daily data email - uses **today's date** | `"large trade td"` |
-| `previous_report_subject` | Subject of previous report email - uses **previous working day's date** | `"large deal report"` |
-| `previous_report_folder` | Outlook folder to search for previous report (subfolder under Inbox) | `"Large Deal Reports"` |
-| `use_outlook` | Use Outlook for both reading and sending emails | `true` |
-| `preview_before_send` | Display email for review instead of auto-sending | `true` |
-| `distribution_list` | Array of email addresses to send the report to | Required |
-| `sender_name` | Your name for the email signature | Required |
+| `incoming_subject` | Subject of the daily data email | `"large trade td"` |
+| `previous_report_subject` | Subject of previous report (use `{date_long}` for date) | `"large deal report"` |
+| `previous_report_folder` | Outlook folder containing previous reports | `"Large Deal Reports"` |
+| `use_outlook` | Use Outlook (set to `true` for Windows) | `true` |
+| `preview_before_send` | Show email preview instead of auto-sending | `true` |
+
+**Required Settings:**
+| Setting | Description |
+|---------|-------------|
+| `distribution_list` | Array of email addresses to send the report to |
+| `sender_name` | Your name for the email signature |
+
+**Optional Settings:**
+| Setting | Description | Default |
+|---------|-------------|---------|
 | `email_body` | Custom email body text (use `\n` for new lines) | Auto-generated |
 | `reports_directory` | Folder where new reports are saved | `"./reports"` |
 | `large_deal_report_sheet` | Name of the data input worksheet | `"large deal report"` |
@@ -251,13 +253,11 @@ You can include today's date in the email subject search using these placeholder
     "management@company.com"
   ],
   "sender_name": "John Smith",
-  "email_body": "Hi all,\n\nPlease find attached today's Large Deal Report.\n\nKind regards,\nJohn",
-  "reports_directory": "./reports",
-  "large_deal_report_sheet": "large deal report",
-  "summary_sheet": "summary",
-  "iphone_compatible_sheet": "iphone compatible"
+  "email_body": "Hi all,\n\nPlease find attached today's Large Deal Report.\n\nKind regards,\nJohn"
 }
 ```
+
+**Note:** Since you're using Outlook (`use_outlook: true`), you don't need any username, password, IMAP, or SMTP settings. The script uses your logged-in Outlook account directly.
 
 ---
 
