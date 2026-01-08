@@ -26,12 +26,15 @@ FILE_2 = "accounts_list.xlsx"          # ← Accounts list file (no Issue Name)
 # Output file name
 OUTPUT_FILE = "consolidated_output.xlsx"
 
-# The column to match/join on (must exist in BOTH files)
-# This is case-insensitive: "ENTITY ID" matches "Entity Id", "entity id", etc.
-MATCH_COLUMN = "ENTITY ID"
+# The column to match/join on (can be different names in each file)
+LEFT_ON = "ENTITY ID"      # ← Column name in FILE_1 (corporate actions)
+RIGHT_ON = "Entity ID"     # ← Column name in FILE_2 (accounts list)
+
+# Merge type: "left", "right", "inner", "outer"
+# "left" = keep all rows from accounts list that match corporate actions
+HOW = "left"
 
 # Columns to extract for the final output (in order from left to right)
-# Column matching is case-insensitive
 # Note: ISSUE NAME comes from corporate actions file via the Entity ID match
 COLUMNS_TO_EXTRACT = [
     "ISSUE NAME",
@@ -184,54 +187,74 @@ def main():
         print("   or update FILE_2 with the full path.")
         return
     
-    # Load spreadsheets
+    # Load spreadsheets (keep original column names for matching)
     print(f"\n📂 Loading Corporate Actions: '{FILE_1}'...")
     df1 = pd.read_excel(FILE_1)
-    df1 = normalize_dataframe_columns(df1)
     print(f"   Found {len(df1)} rows, {len(df1.columns)} columns")
     print(f"   Columns: {list(df1.columns)}")
     
     print(f"\n📂 Loading Accounts List: '{FILE_2}'...")
     df2 = pd.read_excel(FILE_2)
-    df2 = normalize_dataframe_columns(df2)
     print(f"   Found {len(df2)} rows, {len(df2.columns)} columns")
     print(f"   Columns: {list(df2.columns)}")
     
-    # Check match column exists in both
-    match_col_normalized = normalize_column_name(MATCH_COLUMN)
+    # Find the actual column names (case-insensitive search)
+    left_col = find_matching_column(df1, LEFT_ON)
+    right_col = find_matching_column(df2, RIGHT_ON)
     
-    if match_col_normalized not in df1.columns:
-        print(f"\n❌ ERROR: Match column '{MATCH_COLUMN}' not found in corporate actions file")
+    if left_col is None:
+        print(f"\n❌ ERROR: Column '{LEFT_ON}' not found in corporate actions file")
         print(f"   Available columns: {list(df1.columns)}")
         return
     
-    if match_col_normalized not in df2.columns:
-        print(f"\n❌ ERROR: Match column '{MATCH_COLUMN}' not found in accounts list file")
+    if right_col is None:
+        print(f"\n❌ ERROR: Column '{RIGHT_ON}' not found in accounts list file")
         print(f"   Available columns: {list(df2.columns)}")
         return
     
-    print(f"\n🔗 Matching on column: '{match_col_normalized}'")
+    print(f"\n🔗 Matching: '{left_col}' (FILE_1) ↔ '{right_col}' (FILE_2)")
+    print(f"   Merge type: {HOW}")
     
     # Get unique entity IDs from corporate actions
-    entity_ids_in_corp_actions = df1[match_col_normalized].dropna().unique()
-    print(f"   Found {len(entity_ids_in_corp_actions)} unique Entity IDs in corporate actions")
+    entity_ids_in_corp_actions = df1[left_col].dropna().unique()
+    print(f"   Found {len(entity_ids_in_corp_actions)} unique IDs in corporate actions")
     
-    # Filter accounts list to only include rows with matching Entity IDs
-    print(f"\n🔍 Filtering accounts list to matching Entity IDs...")
-    df2_filtered = df2[df2[match_col_normalized].isin(entity_ids_in_corp_actions)]
-    print(f"   Matched {len(df2_filtered)} rows from accounts list")
+    # Prepare corporate actions data for merge (just the columns we need)
+    # Get ISSUE NAME column from corporate actions
+    issue_name_col = find_matching_column(df1, "ISSUE NAME")
     
-    # Get ISSUE NAME mapping from corporate actions (Entity ID -> Issue Name)
-    issue_name_col = normalize_column_name("ISSUE NAME")
-    if issue_name_col in df1.columns:
-        print(f"\n📋 Getting Issue Names from corporate actions...")
-        issue_name_map = df1[[match_col_normalized, issue_name_col]].drop_duplicates()
-        issue_name_map = issue_name_map.set_index(match_col_normalized)[issue_name_col].to_dict()
-        
-        # Add Issue Name to accounts list based on Entity ID
-        df2_filtered = df2_filtered.copy()
-        df2_filtered[issue_name_col] = df2_filtered[match_col_normalized].map(issue_name_map)
-        print(f"   Added Issue Names to {len(df2_filtered)} rows")
+    if issue_name_col:
+        # Create a lookup dataframe with Entity ID and Issue Name
+        df1_lookup = df1[[left_col, issue_name_col]].drop_duplicates()
+        df1_lookup.columns = ['_MERGE_KEY', 'ISSUE NAME']
+        print(f"\n📋 Will add Issue Names from corporate actions")
+    else:
+        df1_lookup = df1[[left_col]].drop_duplicates()
+        df1_lookup.columns = ['_MERGE_KEY']
+        print(f"\n⚠️ No 'ISSUE NAME' column found in corporate actions")
+    
+    # Prepare accounts list for merge
+    df2_for_merge = df2.copy()
+    df2_for_merge['_MERGE_KEY'] = df2_for_merge[right_col]
+    
+    # Perform the merge (left join - keep accounts that match corporate actions)
+    print(f"\n🔗 Performing {HOW} merge...")
+    
+    if HOW == "left":
+        # Left join: keep all from df1_lookup (corporate actions IDs), match from df2
+        # But we want accounts data, so we filter df2 to matching IDs
+        merged_df = df2_for_merge[df2_for_merge['_MERGE_KEY'].isin(df1_lookup['_MERGE_KEY'])]
+        merged_df = merged_df.merge(df1_lookup, on='_MERGE_KEY', how='left')
+    else:
+        merged_df = df2_for_merge.merge(df1_lookup, on='_MERGE_KEY', how=HOW)
+    
+    print(f"   Merged result: {len(merged_df)} rows")
+    
+    # Drop the merge key column
+    merged_df = merged_df.drop(columns=['_MERGE_KEY'])
+    
+    # Normalize all column names to uppercase for extraction
+    merged_df = normalize_dataframe_columns(merged_df)
     
     # Now extract the columns we want
     print(f"\n📊 Extracting columns...")
@@ -240,7 +263,7 @@ def main():
     # Check which columns are available
     available_columns = []
     for col in columns_normalized:
-        if col in df2_filtered.columns:
+        if col in merged_df.columns:
             available_columns.append(col)
             print(f"   ✓ {col}")
         else:
@@ -251,7 +274,7 @@ def main():
         return
     
     # Extract only the columns we want
-    result_df = df2_filtered[available_columns].copy()
+    result_df = merged_df[available_columns].copy()
     
     # Remove completely empty rows
     result_df = result_df.dropna(how='all')
