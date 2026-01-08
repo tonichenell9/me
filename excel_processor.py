@@ -41,15 +41,16 @@ class ExcelProcessor:
         self.iphone_compatible_sheet = config.get('iphone_compatible_sheet', 'iphone compatible')
         self.logger = logging.getLogger(__name__)
     
-    def load_workbook(self, filepath: Path):
+    def load_workbook(self, filepath: Path, keep_macros: bool = False):
         """
         Load an Excel workbook.
         
         Args:
             filepath: Path to the Excel file
+            keep_macros: If True, use xlwings to preserve macros (requires Excel)
             
         Returns:
-            openpyxl Workbook object
+            openpyxl Workbook object (or xlwings Book if keep_macros=True)
             
         Raises:
             FileNotFoundError: If file doesn't exist
@@ -57,7 +58,11 @@ class ExcelProcessor:
         """
         try:
             self.logger.info(f"Loading workbook: {filepath}")
-            return load_workbook(filepath)
+            if keep_macros:
+                # Use openpyxl but keep VBA
+                return load_workbook(filepath, keep_vba=True)
+            else:
+                return load_workbook(filepath)
         except FileNotFoundError:
             raise FileNotFoundError(f"Workbook not found: {filepath}")
         except Exception as e:

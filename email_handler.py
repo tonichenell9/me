@@ -472,7 +472,11 @@ class EmailHandler:
                 )
                 
                 if is_excel:
-                    attachment_path = save_directory / "previous_report.xlsx"
+                    # Keep original extension (.xlsx or .xlsm)
+                    if '.xlsm' in filename_lower:
+                        attachment_path = save_directory / "previous_report.xlsm"
+                    else:
+                        attachment_path = save_directory / "previous_report.xlsx"
                     # Convert to absolute path for Windows
                     absolute_path = str(attachment_path.absolute())
                     self.logger.info(f"Saving to: {absolute_path}")

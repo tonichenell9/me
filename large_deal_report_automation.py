@@ -55,9 +55,12 @@ class LargeDealReportAutomation:
         self.logger.info(f"Temp folder: {self.temp_dir}")
         
         # Date formats
-        self.current_date_file = datetime.now().strftime('%d-%m-%Y')  # For filenames
-        self.current_date_display = datetime.now().strftime('%d/%m/%Y')  # For display
-        self.current_date_iso = datetime.now().strftime('%Y-%m-%d')  # For internal use
+        now = datetime.now()
+        # Long date format: "8 January 2026" (no leading zero)
+        self.current_date_long = f"{now.day} {now.strftime('%B %Y')}"
+        self.current_date_file = self.current_date_long  # For filenames: "8 January 2026"
+        self.current_date_display = self.current_date_long  # For display: "8 January 2026"
+        self.current_date_iso = now.strftime('%Y-%m-%d')  # For internal use
         
         # Initialize handlers
         self.email_handler = EmailHandler(self.config['email'])
@@ -118,12 +121,18 @@ class LargeDealReportAutomation:
             )
             
             # Step 3: Load the previous report and update 'large deal report' sheet
+            # Use keep_macros=True to preserve macro buttons
             self.logger.info("\nStep 3: Updating 'large deal report' worksheet with today's data...")
-            workbook = self.excel_processor.load_workbook(previous_report_path)
+            workbook = self.excel_processor.load_workbook(previous_report_path, keep_macros=True)
             self.excel_processor.update_large_deal_report_sheet(workbook, daily_sheet_path)
             
             # Step 4: Save intermediate version before xlwings refresh
-            temp_report_path = self.temp_dir / f"temp_report_{self.current_date_iso}.xlsx"
+            # Keep same extension as original to preserve macros
+            original_ext = previous_report_path.suffix.lower()
+            if original_ext == '.xlsm':
+                temp_report_path = self.temp_dir / f"temp_report_{self.current_date_iso}.xlsm"
+            else:
+                temp_report_path = self.temp_dir / f"temp_report_{self.current_date_iso}.xlsx"
             self.excel_processor.save_workbook(workbook, temp_report_path)
             workbook.close()
             
@@ -134,15 +143,20 @@ class LargeDealReportAutomation:
             
             # Reload workbook after xlwings refresh
             workbook.close()
-            workbook = self.excel_processor.load_workbook(temp_report_path)
+            workbook = self.excel_processor.load_workbook(temp_report_path, keep_macros=True)
             
             # Step 6: Copy summary to iphone compatible (paste values only)
             self.logger.info("\nStep 5: Copying 'summary' to 'iphone compatible' (values only)...")
             self.excel_processor.copy_summary_to_iphone_compatible(workbook)
             
             # Step 7: Save final report with date-stamped filename
+            # Use .xlsm extension if original had macros, otherwise .xlsx
             self.logger.info("\nStep 6: Saving final report...")
-            filename = f"large deal report - {self.current_date_file}.xlsx"
+            original_ext = previous_report_path.suffix.lower()
+            if original_ext == '.xlsm':
+                filename = f"Large Deal Report - {self.current_date_file}.xlsm"
+            else:
+                filename = f"Large Deal Report - {self.current_date_file}.xlsx"
             new_report_path = self.reports_dir / filename
             self.excel_processor.save_workbook(workbook, new_report_path)
             
