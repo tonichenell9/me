@@ -523,8 +523,11 @@ class EmailHandler:
         
         try:
             # Validate report file exists
+            absolute_path = report_path.absolute()
+            self.logger.info(f"Report path: {absolute_path}")
+            
             if not report_path.exists():
-                raise FileNotFoundError(f"Report file not found: {report_path}")
+                raise FileNotFoundError(f"Report file not found: {absolute_path}")
             
             # Connect to Outlook
             self.logger.debug("Connecting to Outlook application...")
@@ -549,9 +552,10 @@ class EmailHandler:
             for recipient in distribution_list:
                 mail.Recipients.Add(recipient)
             
-            # Attach report
-            self.logger.info(f"Attaching report: {report_path.name}")
-            mail.Attachments.Add(str(report_path))
+            # Attach report - use absolute path for Windows
+            absolute_report_path = str(report_path.absolute())
+            self.logger.info(f"Attaching report: {absolute_report_path}")
+            mail.Attachments.Add(absolute_report_path)
             
             if self.preview_before_send:
                 # Display the email for review - user must click Send manually

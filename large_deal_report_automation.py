@@ -45,11 +45,14 @@ class LargeDealReportAutomation:
         # Load configuration from config.txt
         self.config = read_config(config_path)
         
-        # Setup directories
-        self.reports_dir = Path(self.config.get('reports_directory', './reports'))
-        self.reports_dir.mkdir(exist_ok=True)
-        self.temp_dir = Path(self.config.get('temp_directory', './temp'))
-        self.temp_dir.mkdir(exist_ok=True)
+        # Setup directories - use absolute paths
+        self.reports_dir = Path(self.config.get('reports_directory', './reports')).absolute()
+        self.reports_dir.mkdir(parents=True, exist_ok=True)
+        self.temp_dir = Path(self.config.get('temp_directory', './temp')).absolute()
+        self.temp_dir.mkdir(parents=True, exist_ok=True)
+        
+        self.logger.info(f"Reports folder: {self.reports_dir}")
+        self.logger.info(f"Temp folder: {self.temp_dir}")
         
         # Date formats
         self.current_date_file = datetime.now().strftime('%d-%m-%Y')  # For filenames
