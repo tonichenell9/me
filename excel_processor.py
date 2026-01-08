@@ -290,8 +290,9 @@ class ExcelProcessor:
     
     def copy_summary_to_iphone_compatible(self, workbook: openpyxl.Workbook) -> None:
         """
-        Copy the 'summary' table to 'iphone compatible' worksheet using "Paste Special - Values Only".
-        This copies only the calculated values, not the formulas.
+        Copy the table from 'summary' sheet (starting at B6) to 'iphone compatible' sheet (starting at A1).
+        The table starts at B6 with headers: Fund name, Register name, etc.
+        Skips the macro buttons in B2-B4.
         
         Args:
             workbook: The workbook containing the worksheets
@@ -300,7 +301,7 @@ class ExcelProcessor:
             ValueError: If summary sheet doesn't exist
             Exception: If copy operation fails
         """
-        self.logger.info(f"Copying '{self.summary_sheet}' to '{self.iphone_compatible_sheet}' (values only)...")
+        self.logger.info(f"Copying table from '{self.summary_sheet}' to '{self.iphone_compatible_sheet}'...")
         
         # Find the summary sheet (case-insensitive)
         summary_ws = None
@@ -333,37 +334,58 @@ class ExcelProcessor:
                 self.logger.info(f"Creating new '{self.iphone_compatible_sheet}' sheet...")
                 iphone_ws = workbook.create_sheet(self.iphone_compatible_sheet)
             
-            # Copy data from summary to iphone compatible (VALUES ONLY - no formulas)
-            # This is equivalent to Paste Special -> Values
-            self.logger.info("Copying values only (Paste Special: Values)...")
+            # Table starts at B6 in summary sheet
+            # Copy from B6 onwards to A1 onwards in iphone compatible
+            start_row = 6  # Table starts at row 6
+            start_col = 2  # Column B = 2
             
-            for row_idx, row in enumerate(summary_ws.iter_rows(), start=1):
-                for col_idx, cell in enumerate(row, start=1):
-                    target_cell = iphone_ws.cell(row=row_idx, column=col_idx)
-                    # Copy only the VALUE, not the formula
-                    # If cell has a formula, .value gives the calculated result
-                    target_cell.value = cell.value
+            self.logger.info(f"Copying table from B{start_row} onwards...")
+            
+            # Find the last row and column with data
+            max_row = summary_ws.max_row
+            max_col = summary_ws.max_column
+            
+            self.logger.info(f"Table range: B{start_row} to {get_column_letter(max_col)}{max_row}")
+            
+            # Copy the table data
+            dest_row = 1
+            for src_row in range(start_row, max_row + 1):
+                dest_col = 1
+                row_has_data = False
+                
+                for src_col in range(start_col, max_col + 1):
+                    source_cell = summary_ws.cell(row=src_row, column=src_col)
+                    target_cell = iphone_ws.cell(row=dest_row, column=dest_col)
                     
-                    # Copy formatting (optional - keeps it looking consistent)
-                    if cell.has_style:
-                        target_cell.font = cell.font.copy() if cell.font else None
-                        target_cell.fill = cell.fill.copy() if cell.fill else None
-                        target_cell.border = cell.border.copy() if cell.border else None
-                        target_cell.alignment = cell.alignment.copy() if cell.alignment else None
-                        target_cell.number_format = cell.number_format
+                    # Copy the value
+                    target_cell.value = source_cell.value
+                    
+                    if source_cell.value is not None:
+                        row_has_data = True
+                    
+                    # Copy formatting
+                    if source_cell.has_style:
+                        target_cell.font = source_cell.font.copy() if source_cell.font else None
+                        target_cell.fill = source_cell.fill.copy() if source_cell.fill else None
+                        target_cell.border = source_cell.border.copy() if source_cell.border else None
+                        target_cell.alignment = source_cell.alignment.copy() if source_cell.alignment else None
+                        target_cell.number_format = source_cell.number_format
+                    
+                    dest_col += 1
+                
+                # Only increment destination row if source row had data
+                if row_has_data:
+                    dest_row += 1
             
-            # Copy column widths for consistency
-            for col_idx in range(1, summary_ws.max_column + 1):
-                col_letter = get_column_letter(col_idx)
-                if col_letter in summary_ws.column_dimensions:
-                    iphone_ws.column_dimensions[col_letter].width = summary_ws.column_dimensions[col_letter].width
+            # Copy column widths (shifted from B->A, C->B, etc.)
+            for src_col in range(start_col, max_col + 1):
+                src_letter = get_column_letter(src_col)
+                dest_letter = get_column_letter(src_col - start_col + 1)
+                if src_letter in summary_ws.column_dimensions:
+                    iphone_ws.column_dimensions[dest_letter].width = summary_ws.column_dimensions[src_letter].width
             
-            # Copy row heights
-            for row_idx in range(1, summary_ws.max_row + 1):
-                if row_idx in summary_ws.row_dimensions:
-                    iphone_ws.row_dimensions[row_idx].height = summary_ws.row_dimensions[row_idx].height
-            
-            self.logger.info(f"'{self.iphone_compatible_sheet}' sheet created successfully (values only).")
+            self.logger.info(f"'{self.iphone_compatible_sheet}' sheet created successfully.")
+            self.logger.info(f"Copied {dest_row - 1} rows of data.")
             
         except Exception as e:
             self.logger.error(f"Error copying summary to iphone compatible: {str(e)}")
