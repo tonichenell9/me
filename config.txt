@@ -20,6 +20,7 @@ Please find attached today's Large Deal Report.
 
 Kind regards,
 Your Name
+[END]
 
 # Excel Sheet Names (usually don't need to change these)
 large_deal_report_sheet = large deal report

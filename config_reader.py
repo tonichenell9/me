@@ -16,12 +16,11 @@ def read_config(config_path: str = 'config.txt') -> dict:
         # Comments start with #
         key = value
         
-        # Multi-line values end when a new key is found
+        # Multi-line values for email_body use [END] marker
         email_body = Hi all,
-        
         This is line 2.
-        
         Kind regards
+        [END]
     
     Args:
         config_path: Path to the configuration file
@@ -41,39 +40,60 @@ def read_config(config_path: str = 'config.txt') -> dict:
         'distribution_list': [],
     }
     
-    current_key = None
-    current_value_lines = []
-    
     try:
         with open(config_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
         
-        for line in lines:
-            # Skip empty lines at the start
+        i = 0
+        while i < len(lines):
+            line = lines[i]
             stripped = line.strip()
             
-            # Skip comments
-            if stripped.startswith('#'):
+            # Skip empty lines and comments
+            if not stripped or stripped.startswith('#'):
+                i += 1
                 continue
             
-            # Check if this is a new key = value line
-            if '=' in line and not line.startswith(' ') and not line.startswith('\t'):
-                # Save previous key if exists
-                if current_key:
-                    save_config_value(config, current_key, current_value_lines)
-                
-                # Parse new key = value
+            # Check if this is a key = value line
+            if '=' in line:
                 parts = line.split('=', 1)
-                current_key = parts[0].strip()
-                current_value_lines = [parts[1].strip()] if len(parts) > 1 else []
-            
-            elif current_key and stripped:
-                # This is a continuation of the previous value (multi-line)
-                current_value_lines.append(stripped)
-        
-        # Save the last key
-        if current_key:
-            save_config_value(config, current_key, current_value_lines)
+                key = parts[0].strip()
+                value = parts[1].strip() if len(parts) > 1 else ''
+                
+                # Special handling for email_body (multi-line)
+                if key == 'email_body':
+                    body_lines = [value]
+                    i += 1
+                    # Read until we hit [END], a comment, or another key=value
+                    while i < len(lines):
+                        next_line = lines[i]
+                        next_stripped = next_line.strip()
+                        
+                        # Stop at [END] marker
+                        if next_stripped == '[END]':
+                            i += 1
+                            break
+                        # Stop at comments
+                        if next_stripped.startswith('#'):
+                            break
+                        # Stop at new key = value (but not if line starts with space)
+                        if '=' in next_line and not next_line.startswith(' ') and not next_line.startswith('\t'):
+                            # Check if it looks like a key (no spaces before =)
+                            potential_key = next_line.split('=')[0].strip()
+                            if ' ' not in potential_key:
+                                break
+                        
+                        body_lines.append(next_line.rstrip())
+                        i += 1
+                    
+                    # Join and clean up the body
+                    value = '\n'.join(body_lines).strip()
+                    save_config_value(config, key, value)
+                else:
+                    save_config_value(config, key, value)
+                    i += 1
+            else:
+                i += 1
         
         # Validate required fields
         validate_config(config)
@@ -85,17 +105,15 @@ def read_config(config_path: str = 'config.txt') -> dict:
         sys.exit(1)
 
 
-def save_config_value(config: dict, key: str, value_lines: list):
+def save_config_value(config: dict, key: str, value):
     """Save a configuration value to the config dictionary."""
     
-    # Join multi-line values with newlines
-    value = '\n'.join(value_lines).strip()
-    
     # Handle boolean values
-    if value.lower() in ('yes', 'true', '1'):
-        value = True
-    elif value.lower() in ('no', 'false', '0'):
-        value = False
+    if isinstance(value, str):
+        if value.lower() in ('yes', 'true', '1'):
+            value = True
+        elif value.lower() in ('no', 'false', '0'):
+            value = False
     
     # Email settings
     email_keys = [
@@ -112,8 +130,8 @@ def save_config_value(config: dict, key: str, value_lines: list):
     # Distribution list (can be comma-separated or single)
     elif key == 'distribution_list':
         if isinstance(value, str):
-            # Split by comma or newline
-            emails = [e.strip() for e in value.replace('\n', ',').split(',')]
+            # Split by comma
+            emails = [e.strip() for e in value.split(',')]
             config['distribution_list'] = [e for e in emails if e]  # Remove empty
     
     # Other settings
@@ -146,4 +164,4 @@ if __name__ == "__main__":
     print("Configuration loaded successfully!")
     print(f"Sender: {config.get('sender_name')}")
     print(f"Recipients: {config.get('distribution_list')}")
-    print(f"Previous report folder: {config['email'].get('previous_report_folder')}")
+    print(f"Email body: {config.get('email_body', '')[:50]}...")
