@@ -130,9 +130,8 @@ def apply_hierarchical_merge(ws, start_row, end_row, columns):
 
 def apply_formatting(ws):
     """Apply header and cell formatting."""
-    # Header formatting
-    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
-    header_font = Font(bold=True, size=11, color="FFFFFF")
+    # Header formatting - no fill (clear), bold black text
+    header_font = Font(bold=True, size=11, color="000000")
     header_alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
     thin_border = Border(
         left=Side(style='thin'), right=Side(style='thin'),
@@ -142,7 +141,6 @@ def apply_formatting(ws):
     for col in range(1, ws.max_column + 1):
         cell = ws.cell(row=1, column=col)
         cell.font = header_font
-        cell.fill = header_fill
         cell.alignment = header_alignment
         cell.border = thin_border
     
