@@ -10,56 +10,82 @@ This Python script automates your entire daily reporting process:
 5. Saves the report with today's date
 6. Opens an email preview for you to review before sending
 
-## Quick Start (Windows 11)
+---
 
-### Prerequisites
-- Windows 11 with Microsoft Excel installed
-- Microsoft Outlook (logged into your email account)
-- Python 3.8 or higher
+## Step-by-Step Setup Guide
 
-### Installation
+Follow these steps carefully to set up the automation on your Windows 11 PC.
 
-1. **Install Python** (if not already installed):
-   - Download from [python.org](https://www.python.org/downloads/)
-   - **Important:** Check "Add Python to PATH" during installation
+### Step 1: Check Prerequisites
 
-2. **Install Dependencies**:
-   Open Command Prompt and run:
+Before starting, make sure you have:
+
+- ✅ **Windows 11** PC
+- ✅ **Microsoft Excel** installed (Office 365 or standalone)
+- ✅ **Microsoft Outlook** installed and logged into your email account
+- ✅ Your existing Large Deal Report workbook with these sheets:
+  - `large deal report`
+  - `summary`
+  - `iphone compatible`
+
+### Step 2: Install Python
+
+1. Go to [python.org/downloads](https://www.python.org/downloads/)
+2. Click the big yellow **"Download Python 3.x.x"** button
+3. Run the downloaded installer
+4. **⚠️ IMPORTANT:** On the first screen, tick the box that says **"Add Python to PATH"**
+5. Click **"Install Now"**
+6. Wait for installation to complete, then click **"Close"**
+
+**To verify Python is installed:**
+1. Press `Win + R`, type `cmd`, press Enter
+2. Type `python --version` and press Enter
+3. You should see something like `Python 3.12.0`
+
+### Step 3: Download/Extract the Script Files
+
+1. Download or copy all the script files to a folder on your PC
+2. Recommended location: `C:\Users\YourName\Documents\LargeDealReport\`
+3. Make sure you have these files in the folder:
+   - `large_deal_report_automation.py`
+   - `email_handler.py`
+   - `excel_processor.py`
+   - `config.json.example`
+   - `requirements.txt`
+   - `run_report.bat`
+
+### Step 4: Install Python Dependencies
+
+1. Open **Command Prompt**:
+   - Press `Win + R`
+   - Type `cmd`
+   - Press Enter
+
+2. Navigate to your script folder:
    ```cmd
-   cd path\to\this\folder
+   cd C:\Users\YourName\Documents\LargeDealReport
+   ```
+   (Replace with your actual folder path)
+
+3. Install the required packages:
+   ```cmd
    pip install -r requirements.txt
    ```
 
-3. **Create Configuration**:
-   ```cmd
-   copy config.json.example config.json
-   ```
-   Then edit `config.json` with your settings (see Configuration section below).
+4. Wait for installation to complete (may take 1-2 minutes)
 
-4. **Setup Reports Folder**:
-   - Create a `reports` folder in this directory
-   - Copy your existing Large Deal Report workbook into it
-   - Ensure the workbook has these worksheets:
-     - `large deal report` (where daily data goes)
-     - `summary` (with your table/pivot)
-     - `iphone compatible` (for values-only copy)
+### Step 5: Create Your Configuration File
 
-### Running the Script
+1. In your script folder, find `config.json.example`
+2. Make a copy of it and rename the copy to `config.json`
+   - Right-click `config.json.example` → Copy
+   - Right-click in empty space → Paste
+   - Right-click the copy → Rename → `config.json`
 
-**Double-click** `run_report.bat` or run from Command Prompt:
-```cmd
-python large_deal_report_automation.py
-```
+3. Open `config.json` with Notepad:
+   - Right-click `config.json` → Open with → Notepad
 
-The script will:
-1. Find your most recent report in the `reports` folder
-2. Download the daily worksheet from your "large trade td" email
-3. Update the workbook automatically
-4. Open Outlook with the email ready - **just review and click Send**
-
-## Configuration
-
-Edit `config.json` with your settings:
+4. Edit the following settings:
 
 ```json
 {
@@ -69,10 +95,11 @@ Edit `config.json` with your settings:
     "preview_before_send": true
   },
   "distribution_list": [
-    "distribution-list@company.com",
-    "manager@company.com"
+    "first-distribution-list@yourcompany.com",
+    "second-distribution-list@yourcompany.com",
+    "manager@yourcompany.com"
   ],
-  "sender_name": "Your Name",
+  "sender_name": "Your Actual Name",
   "email_body": "Hi all,\n\nPlease find attached today's Large Deal Report.\n\nKind regards,\nYour Name",
   "reports_directory": "./reports",
   "large_deal_report_sheet": "large deal report",
@@ -81,7 +108,68 @@ Edit `config.json` with your settings:
 }
 ```
 
-### Configuration Options
+5. **What to change:**
+   - `distribution_list`: Replace with your actual email addresses/distribution lists
+   - `sender_name`: Replace with your name
+   - `email_body`: Customise your email message (use `\n` for new lines)
+
+6. Save the file (Ctrl + S) and close Notepad
+
+### Step 6: Set Up the Reports Folder
+
+1. In your script folder, create a new folder called `reports`
+   - Right-click in empty space → New → Folder → name it `reports`
+
+2. Copy your existing Large Deal Report workbook into this `reports` folder
+   - This will be used as the template
+
+3. **Important:** Make sure your workbook has these exact worksheet names (tabs):
+   - `large deal report` (where the daily data goes)
+   - `summary` (with your table that needs refreshing)
+   - `iphone compatible` (for the values-only copy)
+
+### Step 7: Test the Setup
+
+1. Make sure **Outlook is open** and you're logged in
+2. Make sure you have received an email with subject containing "large trade td"
+3. Double-click `run_report.bat`
+4. Watch the Command Prompt window - it will show progress
+5. When complete, Outlook will open with the email ready to send
+6. **Review the email** and click Send when ready
+
+### Step 8: Create a Desktop Shortcut (Optional)
+
+For easy daily access:
+
+1. Right-click on `run_report.bat`
+2. Click **"Create shortcut"**
+3. Drag the shortcut to your Desktop
+4. Rename it to "Large Deal Report" if you like
+
+Now you can double-click the shortcut each day to run the automation!
+
+---
+
+## Daily Usage
+
+Once set up, your daily workflow is simple:
+
+### Every Morning:
+
+1. ✅ Make sure Outlook is open
+2. ✅ Make sure you've received the "large trade td" email
+3. ✅ Double-click `run_report.bat` (or your desktop shortcut)
+4. ✅ Wait for the script to complete (~30 seconds)
+5. ✅ Review the email that opens in Outlook
+6. ✅ Click **Send**
+
+**That's it!** The script handles everything else automatically.
+
+---
+
+## Configuration Reference
+
+### All Configuration Options
 
 | Setting | Description | Default |
 |---------|-------------|---------|
@@ -90,15 +178,39 @@ Edit `config.json` with your settings:
 | `preview_before_send` | Display email for review instead of auto-sending | `true` |
 | `distribution_list` | Array of email addresses to send the report to | Required |
 | `sender_name` | Your name for the email signature | Required |
-| `email_body` | Custom email body text (optional) | Auto-generated |
+| `email_body` | Custom email body text (use `\n` for new lines) | Auto-generated |
 | `reports_directory` | Folder containing your report workbooks | `"./reports"` |
 | `large_deal_report_sheet` | Name of the data input worksheet | `"large deal report"` |
 | `summary_sheet` | Name of the summary worksheet | `"summary"` |
 | `iphone_compatible_sheet` | Name of the iPhone output worksheet | `"iphone compatible"` |
 
-## Your Daily Workflow
+### Example config.json
 
-### Before (Manual Process)
+```json
+{
+  "email": {
+    "incoming_subject": "large trade td",
+    "use_outlook": true,
+    "preview_before_send": true
+  },
+  "distribution_list": [
+    "trading-team@company.com",
+    "management@company.com"
+  ],
+  "sender_name": "John Smith",
+  "email_body": "Hi all,\n\nPlease find attached today's Large Deal Report.\n\nKind regards,\nJohn",
+  "reports_directory": "./reports",
+  "large_deal_report_sheet": "large deal report",
+  "summary_sheet": "summary",
+  "iphone_compatible_sheet": "iphone compatible"
+}
+```
+
+---
+
+## What the Script Replaces
+
+### Before (Manual Process - ~10 minutes)
 1. Open email with "large trade td" subject
 2. Download the attachment
 3. Open your Large Deal Report workbook
@@ -113,12 +225,12 @@ Edit `config.json` with your settings:
 12. Add recipients, attach file, write message
 13. Review and send
 
-### After (Automated)
+### After (Automated - ~30 seconds)
 1. **Double-click `run_report.bat`**
 2. Review the email preview that opens
 3. **Click Send**
 
-That's it! Everything else is automated.
+That's it! The script does steps 1-12 automatically.
 
 ## File Structure
 
