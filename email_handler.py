@@ -230,14 +230,23 @@ class EmailHandler:
             attachment_path = None
             attachments = found_email.Attachments
             
+            # Make sure save directory exists
+            save_directory.mkdir(parents=True, exist_ok=True)
+            
             for i in range(1, attachments.Count + 1):
                 attachment = attachments.Item(i)
                 filename = attachment.FileName
                 
-                if filename and (filename.lower().endswith('.xlsx') or filename.lower().endswith('.xls')):
+                # Flexible check for Excel files
+                filename_lower = filename.lower().strip() if filename else ""
+                is_excel = '.xlsx' in filename_lower or '.xls' in filename_lower
+                
+                if is_excel:
                     attachment_path = save_directory / f"daily_sheet_{current_date}.xlsx"
-                    attachment.SaveAsFile(str(attachment_path))
-                    self.logger.info(f"Downloaded attachment: {filename} -> {attachment_path}")
+                    # Convert to absolute path for Windows
+                    absolute_path = str(attachment_path.absolute())
+                    attachment.SaveAsFile(absolute_path)
+                    self.logger.info(f"Downloaded attachment: {filename}")
                     break
             
             if not attachment_path or not attachment_path.exists():
@@ -398,7 +407,11 @@ class EmailHandler:
             attachment_path = None
             attachments = found_email.Attachments
             
+            # Make sure save directory exists
+            save_directory.mkdir(parents=True, exist_ok=True)
+            
             self.logger.info(f"Downloading attachment from email...")
+            self.logger.info(f"Save folder: {save_directory.absolute()}")
             self.logger.info(f"Number of attachments: {attachments.Count}")
             
             for i in range(1, attachments.Count + 1):
@@ -417,8 +430,10 @@ class EmailHandler:
                 
                 if is_excel:
                     attachment_path = save_directory / "previous_report.xlsx"
-                    self.logger.info(f"Saving to: {attachment_path}")
-                    attachment.SaveAsFile(str(attachment_path))
+                    # Convert to absolute path for Windows
+                    absolute_path = str(attachment_path.absolute())
+                    self.logger.info(f"Saving to: {absolute_path}")
+                    attachment.SaveAsFile(absolute_path)
                     self.logger.info(f"Downloaded: '{filename}'")
                     break
                 else:
