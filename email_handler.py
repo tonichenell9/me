@@ -133,6 +133,10 @@ class EmailHandler:
         
         subject = self.previous_report_subject_template
         
+        # Month and year only
+        # {month_year} = "January 2026"
+        subject = subject.replace('{month_year}', prev_day.strftime('%B %Y'))
+        
         # Long date formats (no leading zero on day)
         # {date_long} = "7 January 2026" (no leading zero)
         subject = subject.replace('{date_long}', f"{prev_day.day} {prev_day.strftime('%B %Y')}")
