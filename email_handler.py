@@ -183,47 +183,77 @@ class EmailHandler:
             namespace = outlook.GetNamespace("MAPI")
             inbox = namespace.GetDefaultFolder(6)  # 6 = olFolderInbox
             
-            self.logger.info(f"Searching for emails with subject containing '{search_subject}'...")
+            self.logger.info(f"Looking for subject containing: '{search_subject}'")
+            self.logger.info(f"Searching in: Inbox")
             
             # Get all inbox items and filter by subject
             messages = inbox.Items
             messages.Sort("[ReceivedTime]", True)  # Sort descending (most recent first)
             
+            # Show recent emails for debugging
+            self.logger.info("Recent emails in Inbox (first 15):")
+            count = 0
+            for message in messages:
+                try:
+                    if count < 15:
+                        subj = message.Subject if message.Subject else "(no subject)"
+                        self.logger.info(f"  - '{subj}'")
+                        count += 1
+                    else:
+                        break
+                except:
+                    continue
+            
+            # Reset and search for matching email
+            messages = inbox.Items
+            messages.Sort("[ReceivedTime]", True)
+            
             # Search for matching email
             found_email = None
             today = datetime.now().date()
             
+            self.logger.info(f"\nSearching for subject containing: '{search_subject}'")
+            
             # First try to find one from today
             for message in messages:
                 try:
-                    subject = message.Subject.lower() if message.Subject else ""
+                    subject = message.Subject if message.Subject else ""
                     received_date = message.ReceivedTime.date()
                     
-                    if search_subject.lower() in subject:
+                    if search_subject.lower() in subject.lower():
+                        self.logger.info(f"Subject MATCH: '{subject}'")
                         if received_date == today:
                             found_email = message
-                            self.logger.info(f"Found today's email: {message.Subject}")
+                            self.logger.info(f"  From today - using this one")
                             break
+                        else:
+                            self.logger.info(f"  From {received_date} (not today)")
                 except Exception:
                     continue
             
             # If no email from today, get the most recent matching email
             if not found_email:
                 self.logger.warning("No matching email found from today. Searching for most recent...")
+                messages = inbox.Items
+                messages.Sort("[ReceivedTime]", True)
+                
                 for message in messages:
                     try:
-                        subject = message.Subject.lower() if message.Subject else ""
-                        if search_subject.lower() in subject:
+                        subject = message.Subject if message.Subject else ""
+                        if search_subject.lower() in subject.lower():
                             found_email = message
-                            self.logger.info(f"Found recent email: {message.Subject}")
+                            self.logger.info(f"Found recent email: '{subject}'")
                             break
                     except Exception:
                         continue
             
             if not found_email:
                 raise Exception(
-                    f"No emails found with subject containing '{search_subject}'. "
-                    "Please ensure you have received the daily email."
+                    f"\nNo emails found with subject containing '{search_subject}'.\n"
+                    f"Please check:\n"
+                    f"  1. The email is in your Inbox (not a subfolder)\n"
+                    f"  2. The subject contains '{search_subject}'\n"
+                    f"  3. Check the 'incoming_subject' setting in config.txt"
                 )
             
             # Find and download Excel attachment
