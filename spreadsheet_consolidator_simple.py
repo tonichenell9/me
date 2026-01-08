@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
 Spreadsheet Consolidator (Simple Version)
-Merges data from two spreadsheets and applies merge & center formatting.
+Matches corporate actions data with accounts list using Entity ID,
+then merges and applies hierarchical merge & center formatting.
 
 HOW TO USE:
-1. Edit the settings below (COLUMNS_TO_EXTRACT, FILE_1, FILE_2, OUTPUT_FILE)
+1. Edit the settings below
 2. Run: python spreadsheet_consolidator_simple.py
 """
 
@@ -19,14 +20,19 @@ from pathlib import Path
 # =============================================================================
 
 # Your input files (put them in the same folder as this script, or use full paths)
-FILE_1 = "corporate_actions.xlsx"      # ← Change to your first file name
-FILE_2 = "accounts_list.xlsx"          # ← Change to your second file name
+FILE_1 = "corporate_actions.xlsx"      # ← Corporate actions file (has Issue Name)
+FILE_2 = "accounts_list.xlsx"          # ← Accounts list file (no Issue Name)
 
 # Output file name
-OUTPUT_FILE = "consolidated_output.xlsx"  # ← Change if you want a different name
+OUTPUT_FILE = "consolidated_output.xlsx"
 
-# Columns to extract (in order from left to right)
-# Column matching is case-insensitive: "SEDOL" matches "Sedol", "sedol", etc.
+# The column to match/join on (must exist in BOTH files)
+# This is case-insensitive: "ENTITY ID" matches "Entity Id", "entity id", etc.
+MATCH_COLUMN = "ENTITY ID"
+
+# Columns to extract for the final output (in order from left to right)
+# Column matching is case-insensitive
+# Note: ISSUE NAME comes from corporate actions file via the Entity ID match
 COLUMNS_TO_EXTRACT = [
     "ISSUE NAME",
     "SEDOL",
@@ -54,7 +60,7 @@ def normalize_column_name(name):
 
 
 def find_matching_column(df, target_col):
-    """Find column in dataframe (case-insensitive)."""
+    """Find column in dataframe (case-insensitive). Returns actual column name."""
     target_normalized = normalize_column_name(target_col)
     for col in df.columns:
         if normalize_column_name(col) == target_normalized:
@@ -62,24 +68,17 @@ def find_matching_column(df, target_col):
     return None
 
 
-def extract_columns(df, columns_to_extract):
-    """Extract specified columns from dataframe."""
-    extracted_data = {}
-    for target_col in columns_to_extract:
-        actual_col = find_matching_column(df, target_col)
-        if actual_col is not None:
-            normalized_name = normalize_column_name(target_col)
-            extracted_data[normalized_name] = df[actual_col].values
-            print(f"  ✓ Found '{actual_col}' -> '{normalized_name}'")
-        else:
-            print(f"  ✗ Column '{target_col}' not found")
-    return pd.DataFrame(extracted_data)
+def normalize_dataframe_columns(df):
+    """Rename all columns to uppercase."""
+    new_columns = {col: normalize_column_name(col) for col in df.columns}
+    return df.rename(columns=new_columns)
 
 
 def apply_hierarchical_merge(ws, start_row, end_row, columns):
-    """Apply hierarchical merge and center formatting."""
+    """Apply hierarchical merge and center-top formatting."""
     group_boundaries = [(start_row, end_row)]
-    center_alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    # Center horizontally, align to TOP vertically
+    center_top_alignment = Alignment(horizontal='center', vertical='top', wrap_text=True)
     
     for col_idx in columns:
         col_letter = get_column_letter(col_idx)
@@ -114,13 +113,14 @@ def apply_hierarchical_merge(ws, start_row, end_row, columns):
         for start, end in merge_ranges:
             try:
                 ws.merge_cells(f"{col_letter}{start}:{col_letter}{end}")
-                ws.cell(row=start, column=col_idx).alignment = center_alignment
+                ws.cell(row=start, column=col_idx).alignment = center_top_alignment
             except:
                 pass
         
+        # Apply center-top alignment to all cells in the column
         for row in range(start_row, end_row + 1):
             try:
-                ws.cell(row=row, column=col_idx).alignment = center_alignment
+                ws.cell(row=row, column=col_idx).alignment = center_top_alignment
             except:
                 pass
 
@@ -145,10 +145,13 @@ def apply_formatting(ws):
     
     ws.row_dimensions[1].height = 30
     
-    # Data cell borders
+    # Data cell borders and center-top alignment
+    center_top_alignment = Alignment(horizontal='center', vertical='top', wrap_text=True)
     for row in range(2, ws.max_row + 1):
         for col in range(1, ws.max_column + 1):
-            ws.cell(row=row, column=col).border = thin_border
+            cell = ws.cell(row=row, column=col)
+            cell.border = thin_border
+            cell.alignment = center_top_alignment
     
     # Auto-adjust column widths
     for column in ws.columns:
@@ -182,46 +185,86 @@ def main():
         return
     
     # Load spreadsheets
-    print(f"\n📂 Loading '{FILE_1}'...")
+    print(f"\n📂 Loading Corporate Actions: '{FILE_1}'...")
     df1 = pd.read_excel(FILE_1)
+    df1 = normalize_dataframe_columns(df1)
     print(f"   Found {len(df1)} rows, {len(df1.columns)} columns")
+    print(f"   Columns: {list(df1.columns)}")
     
-    print(f"\n📂 Loading '{FILE_2}'...")
+    print(f"\n📂 Loading Accounts List: '{FILE_2}'...")
     df2 = pd.read_excel(FILE_2)
+    df2 = normalize_dataframe_columns(df2)
     print(f"   Found {len(df2)} rows, {len(df2.columns)} columns")
+    print(f"   Columns: {list(df2.columns)}")
     
-    # Extract columns
-    print(f"\n🔍 Extracting columns from file 1...")
-    extracted1 = extract_columns(df1, COLUMNS_TO_EXTRACT)
+    # Check match column exists in both
+    match_col_normalized = normalize_column_name(MATCH_COLUMN)
     
-    print(f"\n🔍 Extracting columns from file 2...")
-    extracted2 = extract_columns(df2, COLUMNS_TO_EXTRACT)
+    if match_col_normalized not in df1.columns:
+        print(f"\n❌ ERROR: Match column '{MATCH_COLUMN}' not found in corporate actions file")
+        print(f"   Available columns: {list(df1.columns)}")
+        return
     
-    # Ensure same columns in both
-    all_columns = [normalize_column_name(c) for c in COLUMNS_TO_EXTRACT]
-    for col in all_columns:
-        if col not in extracted1.columns:
-            extracted1[col] = pd.NA
-        if col not in extracted2.columns:
-            extracted2[col] = pd.NA
+    if match_col_normalized not in df2.columns:
+        print(f"\n❌ ERROR: Match column '{MATCH_COLUMN}' not found in accounts list file")
+        print(f"   Available columns: {list(df2.columns)}")
+        return
     
-    extracted1 = extracted1[all_columns]
-    extracted2 = extracted2[all_columns]
+    print(f"\n🔗 Matching on column: '{match_col_normalized}'")
     
-    # Merge data
-    print(f"\n🔗 Merging spreadsheets...")
-    merged_df = pd.concat([extracted1, extracted2], ignore_index=True)
-    merged_df = merged_df.dropna(how='all')
-    print(f"   Combined: {len(merged_df)} rows")
+    # Get unique entity IDs from corporate actions
+    entity_ids_in_corp_actions = df1[match_col_normalized].dropna().unique()
+    print(f"   Found {len(entity_ids_in_corp_actions)} unique Entity IDs in corporate actions")
     
-    # Sort by all columns
+    # Filter accounts list to only include rows with matching Entity IDs
+    print(f"\n🔍 Filtering accounts list to matching Entity IDs...")
+    df2_filtered = df2[df2[match_col_normalized].isin(entity_ids_in_corp_actions)]
+    print(f"   Matched {len(df2_filtered)} rows from accounts list")
+    
+    # Get ISSUE NAME mapping from corporate actions (Entity ID -> Issue Name)
+    issue_name_col = normalize_column_name("ISSUE NAME")
+    if issue_name_col in df1.columns:
+        print(f"\n📋 Getting Issue Names from corporate actions...")
+        issue_name_map = df1[[match_col_normalized, issue_name_col]].drop_duplicates()
+        issue_name_map = issue_name_map.set_index(match_col_normalized)[issue_name_col].to_dict()
+        
+        # Add Issue Name to accounts list based on Entity ID
+        df2_filtered = df2_filtered.copy()
+        df2_filtered[issue_name_col] = df2_filtered[match_col_normalized].map(issue_name_map)
+        print(f"   Added Issue Names to {len(df2_filtered)} rows")
+    
+    # Now extract the columns we want
+    print(f"\n📊 Extracting columns...")
+    columns_normalized = [normalize_column_name(c) for c in COLUMNS_TO_EXTRACT]
+    
+    # Check which columns are available
+    available_columns = []
+    for col in columns_normalized:
+        if col in df2_filtered.columns:
+            available_columns.append(col)
+            print(f"   ✓ {col}")
+        else:
+            print(f"   ✗ {col} (not found)")
+    
+    if not available_columns:
+        print("\n❌ ERROR: No columns found to extract!")
+        return
+    
+    # Extract only the columns we want
+    result_df = df2_filtered[available_columns].copy()
+    
+    # Remove completely empty rows
+    result_df = result_df.dropna(how='all')
+    print(f"\n   Final data: {len(result_df)} rows, {len(result_df.columns)} columns")
+    
+    # Sort by all columns (hierarchical sort)
     print(f"\n📊 Sorting data...")
-    merged_df = merged_df.sort_values(by=all_columns, na_position='last')
-    merged_df = merged_df.reset_index(drop=True)
+    result_df = result_df.sort_values(by=available_columns, na_position='last')
+    result_df = result_df.reset_index(drop=True)
     
     # Save to Excel
     print(f"\n💾 Saving to '{OUTPUT_FILE}'...")
-    merged_df.to_excel(OUTPUT_FILE, index=False, sheet_name='Consolidated Data')
+    result_df.to_excel(OUTPUT_FILE, index=False, sheet_name='Consolidated Data')
     
     # Apply formatting
     print(f"\n🎨 Applying formatting...")
