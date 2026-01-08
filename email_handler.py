@@ -271,8 +271,9 @@ class EmailHandler:
         search_subject = self.get_previous_report_subject()
         prev_day = self.get_previous_working_day()
         
-        self.logger.info(f"Looking for: '{search_subject}'")
+        self.logger.info(f"Today is: {datetime.now().strftime('%A, %d %B %Y')}")
         self.logger.info(f"Previous working day: {prev_day.strftime('%A, %d %B %Y')}")
+        self.logger.info(f"Looking for subject containing: '{search_subject}'")
         self.logger.info(f"Searching in folder: '{self.previous_report_folder}'")
         
         try:
@@ -348,13 +349,25 @@ class EmailHandler:
                                 self.logger.info(f"  Attachments found: {message.Attachments.Count}")
                                 for i in range(1, message.Attachments.Count + 1):
                                     attachment = message.Attachments.Item(i)
-                                    self.logger.info(f"    - '{attachment.FileName}'")
-                                    if attachment.FileName.lower().endswith(('.xlsx', '.xls')):
+                                    filename = attachment.FileName
+                                    self.logger.info(f"    - '{filename}'")
+                                    
+                                    # Check for Excel file (more flexible check)
+                                    filename_lower = filename.lower()
+                                    is_excel = (
+                                        filename_lower.endswith('.xlsx') or 
+                                        filename_lower.endswith('.xls') or
+                                        '.xlsx' in filename_lower or
+                                        '.xls' in filename_lower
+                                    )
+                                    
+                                    if is_excel:
                                         found_email = message
                                         self.logger.info(f"  Excel file FOUND - using this email")
                                         break
+                                
                                 if not found_email:
-                                    self.logger.info(f"  No Excel attachment in this email")
+                                    self.logger.info(f"  No Excel attachment found in this email")
                             else:
                                 self.logger.info(f"  No attachments in this email")
                             
@@ -368,6 +381,7 @@ class EmailHandler:
                 self.logger.error(f"Error searching folder: {str(e)}")
             
             if not found_email:
+                self.logger.error("No matching email with Excel attachment was found!")
                 raise Exception(
                     f"\nCould not find previous report.\n"
                     f"Searched for: '{search_subject}'\n"
@@ -375,8 +389,10 @@ class EmailHandler:
                     f"Please check:\n"
                     f"  1. The folder name matches exactly\n"
                     f"  2. The email subject matches the format above\n"
-                    f"  3. The email has an Excel attachment"
+                    f"  3. The email has an Excel attachment (.xlsx or .xls)"
                 )
+            else:
+                self.logger.info(f"Successfully found email to download")
             
             # Download the Excel attachment
             attachment_path = None
