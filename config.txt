@@ -4,6 +4,7 @@
 
 # Email Settings
 incoming_subject = Large Trade TD
+incoming_folder = Large Deal Reports
 previous_report_subject = Large Deal Report - {date_long}
 previous_report_folder = Large Deal Reports
 preview_before_send = yes

@@ -33,6 +33,7 @@ class EmailHandler:
         """
         self.email_config = email_config
         self.incoming_subject_template = email_config.get('incoming_subject', 'large trade td')
+        self.incoming_folder = email_config.get('incoming_folder', '')  # Empty = search Inbox
         self.previous_report_subject_template = email_config.get('previous_report_subject', 'large deal report')
         self.previous_report_folder = email_config.get('previous_report_folder', 'Large Deal Reports')
         self.preview_before_send = email_config.get('preview_before_send', True)
@@ -183,15 +184,27 @@ class EmailHandler:
             namespace = outlook.GetNamespace("MAPI")
             inbox = namespace.GetDefaultFolder(6)  # 6 = olFolderInbox
             
-            self.logger.info(f"Looking for subject containing: '{search_subject}'")
-            self.logger.info(f"Searching in: Inbox")
+            # Find the target folder
+            target_folder = inbox
+            if self.incoming_folder:
+                self.logger.info(f"Looking for folder: '{self.incoming_folder}'")
+                for folder in inbox.Folders:
+                    if folder.Name.lower() == self.incoming_folder.lower():
+                        target_folder = folder
+                        self.logger.info(f"Found folder: '{folder.Name}'")
+                        break
+                else:
+                    self.logger.warning(f"Folder '{self.incoming_folder}' not found, using Inbox")
             
-            # Get all inbox items and filter by subject
-            messages = inbox.Items
+            self.logger.info(f"Looking for subject containing: '{search_subject}'")
+            self.logger.info(f"Searching in: '{target_folder.Name}'")
+            
+            # Get all items and filter by subject
+            messages = target_folder.Items
             messages.Sort("[ReceivedTime]", True)  # Sort descending (most recent first)
             
             # Show recent emails for debugging
-            self.logger.info("Recent emails in Inbox (first 15):")
+            self.logger.info(f"Recent emails in '{target_folder.Name}' (first 15):")
             count = 0
             for message in messages:
                 try:
@@ -205,7 +218,7 @@ class EmailHandler:
                     continue
             
             # Reset and search for matching email
-            messages = inbox.Items
+            messages = target_folder.Items
             messages.Sort("[ReceivedTime]", True)
             
             # Search for matching email
@@ -234,7 +247,7 @@ class EmailHandler:
             # If no email from today, get the most recent matching email
             if not found_email:
                 self.logger.warning("No matching email found from today. Searching for most recent...")
-                messages = inbox.Items
+                messages = target_folder.Items
                 messages.Sort("[ReceivedTime]", True)
                 
                 for message in messages:

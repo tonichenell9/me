@@ -99,7 +99,8 @@ def save_config_value(config: dict, key: str, value_lines: list):
     
     # Email settings
     email_keys = [
-        'incoming_subject', 
+        'incoming_subject',
+        'incoming_folder',
         'previous_report_subject', 
         'previous_report_folder',
         'preview_before_send'
