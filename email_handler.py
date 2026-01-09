@@ -1,32 +1,24 @@
 #!/usr/bin/env python3
 """
 Email Handler Module
-Handles email retrieval (IMAP) and sending (SMTP or Outlook COM) functionality.
+Handles email retrieval and sending using Outlook on Windows.
 """
 
-import imaplib
-import email
-import smtplib
 import logging
-from email.header import decode_header
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.base import MIMEBase
-from email import encoders
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional, List
+from typing import List
 
-# Try to import win32com for Outlook COM interface (Windows only)
+# Import win32com for Outlook COM interface (Windows only)
 try:
     import win32com.client
-    OUTLOOK_COM_AVAILABLE = True
+    OUTLOOK_AVAILABLE = True
 except ImportError:
-    OUTLOOK_COM_AVAILABLE = False
+    OUTLOOK_AVAILABLE = False
 
 
 class EmailHandler:
-    """Handles email retrieval and sending operations."""
+    """Handles email retrieval and sending using Outlook."""
     
     def __init__(self, email_config: dict):
         """
@@ -34,46 +26,143 @@ class EmailHandler:
         
         Args:
             email_config: Dictionary containing email settings:
-                - username: Email address (for IMAP/SMTP)
-                - password: App password or password (for IMAP/SMTP)
-                - sender_email: Email address to look for
-                - imap_server: IMAP server address
-                - imap_port: IMAP server port
-                - smtp_server: SMTP server address (optional if using Outlook)
-                - smtp_port: SMTP server port (optional if using Outlook)
-                - use_outlook_for_sending: If True, use Outlook COM instead of SMTP (Windows only)
+                - incoming_subject: Subject to search for daily data email
+                - previous_report_subject: Subject pattern for previous report
+                - previous_report_folder: Outlook folder containing previous reports
+                - preview_before_send: If True, displays email for review before sending
         """
         self.email_config = email_config
-        self.username = email_config.get('username')
-        self.password = email_config.get('password')
-        self.sender_email = email_config['sender_email']
-        self.imap_server = email_config.get('imap_server', 'imap.gmail.com')
-        self.imap_port = email_config.get('imap_port', 993)
-        self.smtp_server = email_config.get('smtp_server', 'smtp.gmail.com')
-        self.smtp_port = email_config.get('smtp_port', 587)
-        self.use_outlook_for_sending = email_config.get('use_outlook_for_sending', False)
+        self.incoming_subject_template = email_config.get('incoming_subject', 'large trade td')
+        self.incoming_folder = email_config.get('incoming_folder', '')  # Empty = search Inbox
+        self.previous_report_subject_template = email_config.get('previous_report_subject', 'large deal report')
+        self.previous_report_folder = email_config.get('previous_report_folder', 'Large Deal Reports')
+        self.preview_before_send = email_config.get('preview_before_send', True)
         self.logger = logging.getLogger(__name__)
         
-        # Validate Outlook availability if requested
-        if self.use_outlook_for_sending:
-            if not OUTLOOK_COM_AVAILABLE:
-                raise ImportError(
-                    "Outlook COM requested but win32com not available.\n"
-                    "Install it with: pip install pywin32\n"
-                    "Note: This requires Windows and Outlook to be installed."
-                )
-            self.logger.info("Will use Outlook COM interface for sending emails")
-        else:
-            # Validate SMTP credentials are provided
-            if not self.username or not self.password:
-                raise ValueError(
-                    "SMTP credentials (username and password) are required "
-                    "when not using Outlook for sending."
-                )
+        # Check Outlook is available
+        if not OUTLOOK_AVAILABLE:
+            raise ImportError(
+                "Outlook COM not available.\n"
+                "Install it with: pip install pywin32\n"
+                "Note: This requires Windows and Outlook to be installed."
+            )
+        
+        self.logger.info("Email handler initialized - using Outlook")
+    
+    def get_incoming_subject(self) -> str:
+        """
+        Get the incoming email subject with date placeholders replaced.
+        
+        Supported placeholders:
+            {date_long}      - Long date (e.g., 07 January 2026)
+            {date_long_day}  - Long date with day name (e.g., Tuesday, 07 January 2026)
+            {date}           - DD/MM/YYYY (e.g., 07/01/2026)
+            {date_dash}      - DD-MM-YYYY (e.g., 07-01-2026)
+            {date_dot}       - DD.MM.YYYY (e.g., 07.01.2026)
+            {day_name}       - Day name (e.g., Tuesday)
+            {month_name}     - Month name (e.g., January)
+            {dd}             - Day (e.g., 07)
+            {d}              - Day without leading zero (e.g., 7)
+            {mm}             - Month (e.g., 01)
+            {yyyy}           - Year (e.g., 2026)
+            {yy}             - Short year (e.g., 26)
+        
+        Returns:
+            The subject string with placeholders replaced
+        """
+        now = datetime.now()
+        
+        subject = self.incoming_subject_template
+        
+        # Long date formats (no leading zero on day)
+        # {date_long} = "7 January 2026" (no leading zero)
+        subject = subject.replace('{date_long}', f"{now.day} {now.strftime('%B %Y')}")
+        subject = subject.replace('{date_long_day}', f"{now.strftime('%A')}, {now.day} {now.strftime('%B %Y')}")
+        
+        # Short date formats
+        subject = subject.replace('{date}', now.strftime('%d/%m/%Y'))
+        subject = subject.replace('{date_dash}', now.strftime('%d-%m-%Y'))
+        subject = subject.replace('{date_dot}', now.strftime('%d.%m.%Y'))
+        
+        # Individual components
+        subject = subject.replace('{day_name}', now.strftime('%A'))
+        subject = subject.replace('{month_name}', now.strftime('%B'))
+        subject = subject.replace('{dd}', now.strftime('%d'))
+        subject = subject.replace('{d}', str(now.day))
+        subject = subject.replace('{mm}', now.strftime('%m'))
+        subject = subject.replace('{yyyy}', now.strftime('%Y'))
+        subject = subject.replace('{yy}', now.strftime('%y'))
+        
+        return subject
+    
+    def get_previous_working_day(self) -> datetime:
+        """
+        Get the previous working day (Monday-Friday).
+        If today is Monday, returns Friday.
+        If today is Sunday, returns Friday.
+        If today is Saturday, returns Friday.
+        Otherwise returns yesterday.
+        
+        Note: Does not account for bank holidays.
+        
+        Returns:
+            datetime object for the previous working day
+        """
+        today = datetime.now()
+        
+        # weekday() returns 0=Monday, 1=Tuesday, ..., 6=Sunday
+        if today.weekday() == 0:  # Monday -> Friday
+            days_back = 3
+        elif today.weekday() == 6:  # Sunday -> Friday
+            days_back = 2
+        elif today.weekday() == 5:  # Saturday -> Friday
+            days_back = 1
+        else:  # Tuesday-Friday -> previous day
+            days_back = 1
+        
+        return today - timedelta(days=days_back)
+    
+    def get_previous_report_subject(self) -> str:
+        """
+        Get the previous report email subject with date placeholders replaced
+        using the previous working day's date.
+        
+        Returns:
+            The subject string with placeholders replaced for previous working day
+        """
+        prev_day = self.get_previous_working_day()
+        
+        subject = self.previous_report_subject_template
+        
+        # Month and year only
+        # {month_year} = "January 2026"
+        subject = subject.replace('{month_year}', prev_day.strftime('%B %Y'))
+        
+        # Long date formats (no leading zero on day)
+        # {date_long} = "7 January 2026" (no leading zero)
+        subject = subject.replace('{date_long}', f"{prev_day.day} {prev_day.strftime('%B %Y')}")
+        subject = subject.replace('{date_long_day}', f"{prev_day.strftime('%A')}, {prev_day.day} {prev_day.strftime('%B %Y')}")
+        
+        # Short date formats
+        subject = subject.replace('{date}', prev_day.strftime('%d/%m/%Y'))
+        subject = subject.replace('{date_dash}', prev_day.strftime('%d-%m-%Y'))
+        subject = subject.replace('{date_dot}', prev_day.strftime('%d.%m.%Y'))
+        
+        # Individual components
+        subject = subject.replace('{day_name}', prev_day.strftime('%A'))
+        subject = subject.replace('{month_name}', prev_day.strftime('%B'))
+        subject = subject.replace('{dd}', prev_day.strftime('%d'))
+        subject = subject.replace('{d}', str(prev_day.day))
+        subject = subject.replace('{mm}', prev_day.strftime('%m'))
+        subject = subject.replace('{yyyy}', prev_day.strftime('%Y'))
+        subject = subject.replace('{yy}', prev_day.strftime('%y'))
+        
+        return subject
     
     def download_daily_attachment(self, save_directory: Path, current_date: str) -> Path:
         """
-        Download the daily worksheet attachment from email.
+        Download the daily worksheet attachment from Outlook.
+        Searches for emails with subject containing the configured pattern.
         
         Args:
             save_directory: Directory to save the downloaded attachment
@@ -85,87 +174,123 @@ class EmailHandler:
         Raises:
             Exception: If email retrieval or download fails
         """
-        self.logger.info("Connecting to email server...")
-        mail = None
+        self.logger.info("Connecting to Outlook...")
+        
+        # Get the subject with date placeholders replaced
+        search_subject = self.get_incoming_subject()
         
         try:
-            # Connect to email server
-            self.logger.debug(f"Connecting to IMAP server: {self.imap_server}:{self.imap_port}")
-            mail = imaplib.IMAP4_SSL(self.imap_server, self.imap_port)
-            mail.login(self.username, self.password)
-            mail.select('inbox')
+            outlook = win32com.client.Dispatch("Outlook.Application")
+            namespace = outlook.GetNamespace("MAPI")
+            inbox = namespace.GetDefaultFolder(6)  # 6 = olFolderInbox
             
-            self.logger.info(f"Searching for emails from {self.sender_email}...")
+            # Find the target folder
+            target_folder = inbox
+            if self.incoming_folder:
+                self.logger.info(f"Looking for folder: '{self.incoming_folder}'")
+                for folder in inbox.Folders:
+                    if folder.Name.lower() == self.incoming_folder.lower():
+                        target_folder = folder
+                        self.logger.info(f"Found folder: '{folder.Name}'")
+                        break
+                else:
+                    self.logger.warning(f"Folder '{self.incoming_folder}' not found, using Inbox")
             
-            # Search for emails from today with attachments
-            today = datetime.now().strftime('%d-%b-%Y')
-            search_criteria = f'(FROM "{self.sender_email}" SINCE {today})'
-            status, messages = mail.search(None, search_criteria)
+            self.logger.info(f"Looking for subject containing: '{search_subject}'")
+            self.logger.info(f"Searching in: '{target_folder.Name}'")
             
-            if status != 'OK':
-                raise Exception("Failed to search emails")
+            # Get all items and filter by subject
+            messages = target_folder.Items
+            messages.Sort("[ReceivedTime]", True)  # Sort descending (most recent first)
             
-            email_ids = messages[0].split()
+            # Show recent emails for debugging
+            self.logger.info(f"Recent emails in '{target_folder.Name}' (first 15):")
+            count = 0
+            for message in messages:
+                try:
+                    if count < 15:
+                        subj = message.Subject if message.Subject else "(no subject)"
+                        self.logger.info(f"  - '{subj}'")
+                        count += 1
+                    else:
+                        break
+                except:
+                    continue
             
-            # If no emails from today, try without date restriction (get most recent)
-            if not email_ids:
-                self.logger.warning("No emails found from today. Searching for most recent email...")
-                search_criteria = f'(FROM "{self.sender_email}")'
-                status, messages = mail.search(None, search_criteria)
+            # Reset and search for matching email
+            messages = target_folder.Items
+            messages.Sort("[ReceivedTime]", True)
+            
+            # Search for matching email
+            found_email = None
+            today = datetime.now().date()
+            
+            self.logger.info(f"\nSearching for subject containing: '{search_subject}'")
+            
+            # First try to find one from today
+            for message in messages:
+                try:
+                    subject = message.Subject if message.Subject else ""
+                    received_date = message.ReceivedTime.date()
+                    
+                    if search_subject.lower() in subject.lower():
+                        self.logger.info(f"Subject MATCH: '{subject}'")
+                        if received_date == today:
+                            found_email = message
+                            self.logger.info(f"  From today - using this one")
+                            break
+                        else:
+                            self.logger.info(f"  From {received_date} (not today)")
+                except Exception:
+                    continue
+            
+            # If no email from today, get the most recent matching email
+            if not found_email:
+                self.logger.warning("No matching email found from today. Searching for most recent...")
+                messages = target_folder.Items
+                messages.Sort("[ReceivedTime]", True)
                 
-                if status != 'OK':
-                    raise Exception("Failed to search emails")
-                
-                email_ids = messages[0].split()
+                for message in messages:
+                    try:
+                        subject = message.Subject if message.Subject else ""
+                        if search_subject.lower() in subject.lower():
+                            found_email = message
+                            self.logger.info(f"Found recent email: '{subject}'")
+                            break
+                    except Exception:
+                        continue
             
-            if not email_ids:
+            if not found_email:
                 raise Exception(
-                    f"No emails found from {self.sender_email}. "
-                    "Please ensure you have received the daily email."
+                    f"\nNo emails found with subject containing '{search_subject}'.\n"
+                    f"Please check:\n"
+                    f"  1. The email is in your Inbox (not a subfolder)\n"
+                    f"  2. The subject contains '{search_subject}'\n"
+                    f"  3. Check the 'incoming_subject' setting in config.txt"
                 )
-            
-            # Get the most recent email
-            latest_email_id = email_ids[-1]
-            self.logger.info(f"Found email ID: {latest_email_id.decode()}")
-            
-            status, msg_data = mail.fetch(latest_email_id, '(RFC822)')
-            
-            if status != 'OK':
-                raise Exception("Failed to fetch email")
-            
-            email_body = msg_data[0][1]
-            msg = email.message_from_bytes(email_body)
-            
-            # Decode subject for logging
-            subject = decode_header(msg["Subject"])[0][0]
-            if isinstance(subject, bytes):
-                subject = subject.decode()
-            self.logger.info(f"Email subject: {subject}")
             
             # Find and download Excel attachment
             attachment_path = None
-            for part in msg.walk():
-                content_disposition = part.get_content_disposition()
-                if content_disposition == 'attachment':
-                    filename = part.get_filename()
-                    
-                    # Decode filename if needed
-                    if filename:
-                        decoded_filename = decode_header(filename)[0][0]
-                        if isinstance(decoded_filename, bytes):
-                            filename = decoded_filename.decode()
-                        
-                        if filename and (filename.endswith('.xlsx') or filename.endswith('.xls')):
-                            attachment_path = save_directory / f"daily_sheet_{current_date}.xlsx"
-                            
-                            # Download attachment
-                            with open(attachment_path, 'wb') as f:
-                                payload = part.get_payload(decode=True)
-                                if payload:
-                                    f.write(payload)
-                            
-                            self.logger.info(f"Downloaded attachment: {filename} -> {attachment_path}")
-                            break
+            attachments = found_email.Attachments
+            
+            # Make sure save directory exists
+            save_directory.mkdir(parents=True, exist_ok=True)
+            
+            for i in range(1, attachments.Count + 1):
+                attachment = attachments.Item(i)
+                filename = attachment.FileName
+                
+                # Flexible check for Excel files
+                filename_lower = filename.lower().strip() if filename else ""
+                is_excel = '.xlsx' in filename_lower or '.xls' in filename_lower
+                
+                if is_excel:
+                    attachment_path = save_directory / f"daily_sheet_{current_date}.xlsx"
+                    # Convert to absolute path for Windows
+                    absolute_path = str(attachment_path.absolute())
+                    attachment.SaveAsFile(absolute_path)
+                    self.logger.info(f"Downloaded attachment: {filename}")
+                    break
             
             if not attachment_path or not attachment_path.exists():
                 raise Exception(
@@ -175,112 +300,292 @@ class EmailHandler:
             
             return attachment_path
             
-        except imaplib.IMAP4.error as e:
-            self.logger.error(f"IMAP error: {str(e)}")
-            raise Exception(f"IMAP error: {str(e)}")
         except Exception as e:
-            self.logger.error(f"Error downloading email attachment: {str(e)}")
-            if "login" in str(e).lower() or "authentication" in str(e).lower():
-                error_msg = (
-                    f"Email authentication failed: {str(e)}\n"
-                    "For Gmail, make sure you're using an App Password, not your regular password."
+            self.logger.error(f"Error downloading via Outlook: {str(e)}")
+            raise Exception(f"Error downloading email attachment via Outlook: {str(e)}")
+    
+    def download_previous_report(self, save_directory: Path) -> Path:
+        """
+        Download the previous working day's report from Outlook.
+        Searches in the configured folder (default: "Large Deal Reports").
+        
+        Args:
+            save_directory: Directory to save the downloaded report
+            
+        Returns:
+            Path to the downloaded report file
+            
+        Raises:
+            Exception: If report cannot be found or downloaded
+        """
+        self.logger.info("Searching for previous day's report in Outlook...")
+        
+        search_subject = self.get_previous_report_subject()
+        prev_day = self.get_previous_working_day()
+        
+        self.logger.info(f"Today is: {datetime.now().strftime('%A, %d %B %Y')}")
+        self.logger.info(f"Previous working day: {prev_day.strftime('%A, %d %B %Y')}")
+        self.logger.info(f"Looking for subject containing: '{search_subject}'")
+        self.logger.info(f"Searching in folder: '{self.previous_report_folder}'")
+        
+        try:
+            outlook = win32com.client.Dispatch("Outlook.Application")
+            namespace = outlook.GetNamespace("MAPI")
+            
+            found_email = None
+            
+            # First try to find the specified subfolder under Inbox
+            try:
+                inbox = namespace.GetDefaultFolder(6)  # 6 = Inbox
+                
+                # List all available folders for debugging
+                self.logger.info("Available folders in Inbox:")
+                for folder in inbox.Folders:
+                    self.logger.info(f"  - '{folder.Name}'")
+                
+                # Try to find the subfolder
+                target_folder = None
+                
+                if self.previous_report_folder:
+                    # Search for the subfolder (case-insensitive)
+                    for folder in inbox.Folders:
+                        if folder.Name.lower() == self.previous_report_folder.lower():
+                            target_folder = folder
+                            self.logger.info(f"Found matching folder: '{folder.Name}'")
+                            break
+                    
+                    if not target_folder:
+                        self.logger.warning(
+                            f"Folder '{self.previous_report_folder}' not found under Inbox. "
+                            "Searching in Inbox instead."
+                        )
+                        target_folder = inbox
+                else:
+                    target_folder = inbox
+                
+                # Search in the target folder
+                self.logger.info(f"Searching in '{target_folder.Name}'...")
+                messages = target_folder.Items
+                messages.Sort("[ReceivedTime]", True)  # Most recent first
+                
+                # Show recent emails for debugging
+                self.logger.info("Recent emails in this folder:")
+                count = 0
+                for message in messages:
+                    try:
+                        if count < 10:  # Show first 10
+                            subj = message.Subject if message.Subject else "(no subject)"
+                            self.logger.info(f"  - '{subj}'")
+                            count += 1
+                        else:
+                            break
+                    except:
+                        continue
+                
+                # Reset and search for matching email
+                messages = target_folder.Items
+                messages.Sort("[ReceivedTime]", True)
+                
+                self.logger.info(f"\nSearching for subject containing: '{search_subject}'")
+                
+                for message in messages:
+                    try:
+                        subject = message.Subject if message.Subject else ""
+                        
+                        # Check if subject contains our search term (case-insensitive)
+                        if search_subject.lower() in subject.lower():
+                            self.logger.info(f"Subject MATCH: '{subject}'")
+                            
+                            # Check if it has an Excel attachment
+                            if message.Attachments.Count > 0:
+                                self.logger.info(f"  Attachments found: {message.Attachments.Count}")
+                                for i in range(1, message.Attachments.Count + 1):
+                                    attachment = message.Attachments.Item(i)
+                                    filename = attachment.FileName
+                                    self.logger.info(f"    - '{filename}'")
+                                    
+                                    # Check for Excel file (more flexible check)
+                                    filename_lower = filename.lower()
+                                    is_excel = (
+                                        filename_lower.endswith('.xlsx') or 
+                                        filename_lower.endswith('.xls') or
+                                        '.xlsx' in filename_lower or
+                                        '.xls' in filename_lower
+                                    )
+                                    
+                                    if is_excel:
+                                        found_email = message
+                                        self.logger.info(f"  Excel file FOUND - using this email")
+                                        break
+                                
+                                if not found_email:
+                                    self.logger.info(f"  No Excel attachment found in this email")
+                            else:
+                                self.logger.info(f"  No attachments in this email")
+                            
+                            if found_email:
+                                break
+                    except Exception as e:
+                        self.logger.warning(f"Error checking email: {str(e)}")
+                        continue
+                        
+            except Exception as e:
+                self.logger.error(f"Error searching folder: {str(e)}")
+            
+            if not found_email:
+                self.logger.error("No matching email with Excel attachment was found!")
+                raise Exception(
+                    f"\nCould not find previous report.\n"
+                    f"Searched for: '{search_subject}'\n"
+                    f"In folder: '{self.previous_report_folder}'\n"
+                    f"Please check:\n"
+                    f"  1. The folder name matches exactly\n"
+                    f"  2. The email subject matches the format above\n"
+                    f"  3. The email has an Excel attachment (.xlsx or .xls)"
                 )
-                self.logger.error(error_msg)
-                raise Exception(error_msg)
-            raise Exception(f"Error downloading email attachment: {str(e)}")
-        finally:
-            if mail:
-                try:
-                    mail.close()
-                    mail.logout()
-                    self.logger.debug("IMAP connection closed")
-                except Exception as e:
-                    self.logger.warning(f"Error closing IMAP connection: {str(e)}")
+            else:
+                self.logger.info(f"Successfully found email to download")
+            
+            # Download the Excel attachment
+            attachment_path = None
+            attachments = found_email.Attachments
+            
+            # Make sure save directory exists
+            save_directory.mkdir(parents=True, exist_ok=True)
+            
+            self.logger.info(f"Downloading attachment from email...")
+            self.logger.info(f"Save folder: {save_directory.absolute()}")
+            self.logger.info(f"Number of attachments: {attachments.Count}")
+            
+            for i in range(1, attachments.Count + 1):
+                attachment = attachments.Item(i)
+                filename = attachment.FileName
+                self.logger.info(f"Checking attachment: '{filename}'")
+                
+                # Flexible check for Excel files
+                filename_lower = filename.lower().strip()
+                is_excel = (
+                    '.xlsx' in filename_lower or 
+                    '.xls' in filename_lower or
+                    filename_lower.endswith('.xlsx') or
+                    filename_lower.endswith('.xls')
+                )
+                
+                if is_excel:
+                    # Keep original extension (.xlsx or .xlsm)
+                    if '.xlsm' in filename_lower:
+                        attachment_path = save_directory / "previous_report.xlsm"
+                    else:
+                        attachment_path = save_directory / "previous_report.xlsx"
+                    # Convert to absolute path for Windows
+                    absolute_path = str(attachment_path.absolute())
+                    self.logger.info(f"Saving to: {absolute_path}")
+                    attachment.SaveAsFile(absolute_path)
+                    self.logger.info(f"Downloaded: '{filename}'")
+                    break
+                else:
+                    self.logger.info(f"  Not an Excel file, skipping")
+            
+            if not attachment_path or not attachment_path.exists():
+                raise Exception(
+                    f"No Excel attachment found in the previous report email.\n"
+                    f"Attachments in email: {attachments.Count}"
+                )
+            
+            return attachment_path
+            
+        except Exception as e:
+            self.logger.error(f"Error downloading previous report: {str(e)}")
+            raise
     
     def send_report_email(
         self, 
         report_path: Path, 
-        distribution_list: List[str], 
+        to_recipients: List[str], 
         sender_name: str, 
-        current_date: str
+        current_date: str,
+        email_body: str = None,
+        cc_recipients: List[str] = None
     ) -> None:
         """
-        Send the report via email to the distribution list.
-        Uses Outlook COM if configured, otherwise uses SMTP.
+        Send or preview the report via Outlook.
+        
+        If preview_before_send is True (default), the email will be displayed
+        in Outlook for review before sending manually.
         
         Args:
             report_path: Path to the report file to attach
-            distribution_list: List of recipient email addresses
+            to_recipients: List of recipient email addresses (To: field)
             sender_name: Name of the sender
-            current_date: Current date string (YYYY-MM-DD)
+            current_date: Current date string (DD/MM/YYYY format for display)
+            email_body: Optional custom email body text
+            cc_recipients: Optional list of CC recipients
             
         Raises:
             Exception: If email sending fails
         """
-        if self.use_outlook_for_sending:
-            self._send_via_outlook(report_path, distribution_list, sender_name, current_date)
-        else:
-            self._send_via_smtp(report_path, distribution_list, sender_name, current_date)
-    
-    def _send_via_outlook(
-        self,
-        report_path: Path,
-        distribution_list: List[str],
-        sender_name: str,
-        current_date: str
-    ) -> None:
-        """
-        Send email using Outlook COM interface (Windows only).
-        
-        Args:
-            report_path: Path to the report file to attach
-            distribution_list: List of recipient email addresses
-            sender_name: Name of the sender
-            current_date: Current date string (YYYY-MM-DD)
-            
-        Raises:
-            Exception: If email sending fails
-        """
-        self.logger.info("Preparing email in Outlook...")
+        action = "preview" if self.preview_before_send else "send"
+        self.logger.info(f"Preparing email in Outlook for {action}...")
         
         try:
             # Validate report file exists
+            absolute_path = report_path.absolute()
+            self.logger.info(f"Report path: {absolute_path}")
+            
             if not report_path.exists():
-                raise FileNotFoundError(f"Report file not found: {report_path}")
+                raise FileNotFoundError(f"Report file not found: {absolute_path}")
             
             # Connect to Outlook
             self.logger.debug("Connecting to Outlook application...")
             outlook = win32com.client.Dispatch("Outlook.Application")
             mail = outlook.CreateItem(0)  # 0 = MailItem
             
-            # Set email properties
+            # Set email properties with proper date format
             mail.Subject = f"Large Deal Report - {current_date}"
-            mail.Body = (
-                f"Hi all,\n\n"
-                f"Please see the large deal report for {current_date}.\n\n"
-                f"Kind regards,\n{sender_name}"
-            )
             
-            # Add recipients
-            self.logger.info(f"Adding {len(distribution_list)} recipient(s)...")
-            for recipient in distribution_list:
+            # Use custom body if provided, otherwise use default
+            if email_body:
+                mail.Body = email_body
+            else:
+                mail.Body = (
+                    f"Hi all,\n\n"
+                    f"Please find attached today's Large Deal Report for {current_date}.\n\n"
+                    f"Kind regards,\n{sender_name}"
+                )
+            
+            # Add To: recipients
+            self.logger.info(f"Adding {len(to_recipients)} To: recipient(s)...")
+            for recipient in to_recipients:
                 mail.Recipients.Add(recipient)
             
-            # Attach report
-            self.logger.info(f"Attaching report: {report_path.name}")
-            mail.Attachments.Add(str(report_path))
+            # Add CC: recipients
+            if cc_recipients:
+                self.logger.info(f"Adding {len(cc_recipients)} CC: recipient(s)...")
+                for cc in cc_recipients:
+                    cc_recipient = mail.Recipients.Add(cc)
+                    cc_recipient.Type = 2  # 2 = CC
             
-            # Send email
-            self.logger.info("Sending email via Outlook...")
-            mail.Send()
+            # Attach report - use absolute path for Windows
+            absolute_report_path = str(report_path.absolute())
+            self.logger.info(f"Attaching report: {absolute_report_path}")
+            mail.Attachments.Add(absolute_report_path)
             
-            self.logger.info("Email sent successfully via Outlook!")
+            if self.preview_before_send:
+                # Display the email for review - user must click Send manually
+                self.logger.info("Opening email for preview - please review and click Send when ready...")
+                mail.Display(True)  # True = modal window
+                self.logger.info("Email displayed for preview. User will send manually.")
+            else:
+                # Send email automatically
+                self.logger.info("Sending email via Outlook...")
+                mail.Send()
+                self.logger.info("Email sent successfully via Outlook!")
             
         except FileNotFoundError as e:
             self.logger.error(f"Report file not found: {str(e)}")
             raise
         except Exception as e:
-            error_msg = f"Error sending email via Outlook: {str(e)}"
+            error_msg = f"Error {action}ing email via Outlook: {str(e)}"
             self.logger.error(error_msg)
             if "Outlook.Application" in str(e) or "COM" in str(e) or "win32com" in str(e):
                 raise Exception(
@@ -289,90 +594,3 @@ class EmailHandler:
                     "Also ensure pywin32 is installed: pip install pywin32"
                 )
             raise Exception(error_msg)
-    
-    def _send_via_smtp(
-        self,
-        report_path: Path,
-        distribution_list: List[str],
-        sender_name: str,
-        current_date: str
-    ) -> None:
-        """
-        Send email using SMTP.
-        
-        Args:
-            report_path: Path to the report file to attach
-            distribution_list: List of recipient email addresses
-            sender_name: Name of the sender
-            current_date: Current date string (YYYY-MM-DD)
-            
-        Raises:
-            Exception: If email sending fails
-        """
-        self.logger.info("Preparing email via SMTP...")
-        server = None
-        
-        try:
-            # Validate report file exists
-            if not report_path.exists():
-                raise FileNotFoundError(f"Report file not found: {report_path}")
-            
-            # Create message
-            msg = MIMEMultipart()
-            msg['From'] = self.username
-            msg['To'] = ', '.join(distribution_list)
-            msg['Subject'] = f"Large Deal Report - {current_date}"
-            
-            # Email body
-            body = (
-                f"Hi all,\n\n"
-                f"Please see the large deal report for {current_date}.\n\n"
-                f"Kind regards,\n{sender_name}"
-            )
-            msg.attach(MIMEText(body, 'plain'))
-            
-            # Attach report
-            self.logger.info(f"Attaching report: {report_path.name}")
-            with open(report_path, 'rb') as attachment:
-                part = MIMEBase('application', 'octet-stream')
-                part.set_payload(attachment.read())
-            
-            encoders.encode_base64(part)
-            part.add_header(
-                'Content-Disposition',
-                f'attachment; filename= {report_path.name}'
-            )
-            msg.attach(part)
-            
-            # Send email
-            self.logger.info(f"Sending email to {len(distribution_list)} recipient(s)...")
-            self.logger.debug(f"Connecting to SMTP server: {self.smtp_server}:{self.smtp_port}")
-            server = smtplib.SMTP(self.smtp_server, self.smtp_port)
-            server.starttls()
-            server.login(self.username, self.password)
-            text = msg.as_string()
-            server.sendmail(self.username, distribution_list, text)
-            
-            self.logger.info("Email sent successfully via SMTP!")
-            
-        except smtplib.SMTPAuthenticationError as e:
-            error_msg = (
-                f"SMTP authentication failed: {str(e)}\n"
-                "For Gmail, make sure you're using an App Password, not your regular password."
-            )
-            self.logger.error(error_msg)
-            raise Exception(error_msg)
-        except FileNotFoundError as e:
-            self.logger.error(f"Report file not found: {str(e)}")
-            raise
-        except Exception as e:
-            self.logger.error(f"Error sending email: {str(e)}")
-            raise Exception(f"Error sending email: {str(e)}")
-        finally:
-            if server:
-                try:
-                    server.quit()
-                    self.logger.debug("SMTP connection closed")
-                except Exception as e:
-                    self.logger.warning(f"Error closing SMTP connection: {str(e)}")
-

@@ -1,0 +1,35 @@
+# Large Deal Report Automation - Configuration
+# Edit the values after the = sign
+# Lines starting with # are comments (ignored)
+
+# Email Settings
+incoming_subject = Large Trade TD
+incoming_folder = Large Deal Reports
+previous_report_subject = Large Deal Report - {date_long}
+previous_report_folder = Large Deal Reports
+preview_before_send = yes
+
+# Recipients
+# to_recipients = main distribution list (To: field)
+# cc_recipients = additional recipients (CC: field) - separate multiple with commas
+to_recipients = your-distribution-list@company.com
+cc_recipients = cc-list-1@company.com, cc-list-2@company.com
+
+# Your Details
+sender_name = Your Name
+email_body = Hi all,
+
+Please find attached today's Large Deal Report.
+
+Kind regards,
+Your Name
+[END]
+
+# Excel Sheet Names (usually don't need to change these)
+large_deal_report_sheet = large deal report
+summary_sheet = summary
+iphone_compatible_sheet = iphone compatible
+
+# Folders
+reports_directory = ./reports
+temp_directory = ./temp

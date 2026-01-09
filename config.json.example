@@ -1,25 +1,23 @@
 {
   "email": {
-    "username": "your_email@gmail.com",
-    "password": "your_app_password",
-    "sender_email": "sender@example.com",
-    "imap_server": "imap.gmail.com",
-    "imap_port": 993,
-    "smtp_server": "smtp.gmail.com",
-    "smtp_port": 587,
-    "use_outlook_for_sending": true
+    "incoming_subject": "large trade td",
+    "previous_report_subject": "large deal report - {date_long}",
+    "previous_report_folder": "Large Deal Reports",
+    "use_outlook": true,
+    "preview_before_send": true
   },
   "distribution_list": [
-    "recipient1@example.com",
-    "recipient2@example.com",
-    "recipient3@example.com"
+    "distribution-list-1@company.com",
+    "distribution-list-2@company.com",
+    "manager@company.com"
   ],
   "sender_name": "Your Name",
+  "email_body": "Hi all,\n\nPlease find attached today's Large Deal Report.\n\nKind regards,\nYour Name",
   "reports_directory": "./reports",
   "temp_directory": "./temp",
-  "worksheet_1_name": "Sheet1",
-  "worksheet_2_name": "Sheet2",
-  "worksheet_3_name": "Sheet3",
+  "large_deal_report_sheet": "large deal report",
+  "summary_sheet": "summary",
+  "iphone_compatible_sheet": "iphone compatible",
   "log_level": "INFO",
   "log_file": null
 }

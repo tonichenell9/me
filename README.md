@@ -1,694 +1,460 @@
 # Large Deal Report Automation
 
-This Python script automates the daily generation and distribution of the Large Deal Report with a single click. It handles email retrieval, Excel manipulation, data refresh, and distribution automatically.
+**One-click automation for the daily Large Deal Report workflow on Windows 11.**
 
-## Features
+This Python script automates your entire daily reporting process:
+1. Downloads the **previous day's report** from your sent items/inbox
+2. Downloads the **daily worksheet** from your "large trade td" email
+3. Pastes the daily data into the workbook
+4. Refreshes the summary table
+5. Creates the iPhone compatible version (values only)
+6. Saves the report with today's date
+7. Opens an email preview for you to review before sending
 
-- **Automated Email Retrieval**: Downloads daily worksheet from email automatically
-- **Excel Processing**: Updates worksheets, refreshes data connections, and creates smartphone-friendly versions
-- **Data Refresh**: Supports xlwings for automatic refresh of Power Query and external data connections
-- **Automated Distribution**: Emails the completed report to a distribution list
-- **Error Handling**: Comprehensive error handling with detailed logging
-- **Modular Design**: Separate modules for email handling and Excel processing
+---
 
-## Architecture
+## Step-by-Step Setup Guide
 
-The automation follows this workflow:
+Follow these steps carefully to set up the automation on your Windows 11 PC.
 
-1. Find the latest report template
-2. Download daily worksheet from email
-3. Update Worksheet 1 with daily data (full replacement)
-4. Refresh Worksheet 2 using xlwings (or fallback method)
-5. Copy Worksheet 2 to Worksheet 3 (smartphone-friendly version)
-6. Save report with current date
-7. Email report to distribution list
-8. Clean up temporary files
+### Step 1: Check Prerequisites
 
-## Prerequisites
+Before starting, make sure you have:
 
-- Python 3.7 or higher
-- Excel installed (for xlwings refresh functionality - **Windows 11 recommended**)
-- Email account with IMAP and SMTP access
-- Gmail App Password (if using Gmail) or appropriate email credentials
+- ✅ **Windows 11** PC
+- ✅ **Microsoft Excel** installed (Office 365 or standalone)
+- ✅ **Microsoft Outlook** installed and logged into your email account
+- ✅ Your existing Large Deal Report workbook with these sheets:
+  - `large deal report`
+  - `summary`
+  - `iphone compatible`
 
-### Windows 11 Specific Notes
+### Step 2: Install Python
 
-- **Excel**: Microsoft Excel must be installed (Office 365 or standalone version)
-- **Python**: Ensure Python is added to your system PATH
-- **xlwings**: Works seamlessly with Excel on Windows - no additional configuration needed
-- **Path Handling**: The script uses `pathlib` which handles Windows paths automatically
+1. Go to [python.org/downloads](https://www.python.org/downloads/)
+2. Click the big yellow **"Download Python 3.x.x"** button
+3. Run the downloaded installer
+4. **⚠️ IMPORTANT:** On the first screen, tick the box that says **"Add Python to PATH"**
+5. Click **"Install Now"**
+6. Wait for installation to complete, then click **"Close"**
 
-## Installation
+**To verify Python is installed:**
+1. Press `Win + R`, type `cmd`, press Enter
+2. Type `python --version` and press Enter
+3. You should see something like `Python 3.12.0`
 
-### Windows 11 Quick Start
+### Step 3: Download/Extract the Script Files
 
-1. **Install Python** (if not already installed):
-   - Download from [python.org](https://www.python.org/downloads/)
-   - During installation, check "Add Python to PATH"
-   - Verify: Open Command Prompt and run `python --version`
+1. Download or copy all the script files to a folder on your PC
+2. Recommended location: `C:\Users\YourName\Documents\LargeDealReport\`
+3. Make sure you have these files in the folder:
+   - `large_deal_report_automation.py`
+   - `email_handler.py`
+   - `excel_processor.py`
+   - `config.json.example`
+   - `requirements.txt`
+   - `run_report.bat`
 
-2. **Install Excel** (if not already installed):
-   - Microsoft Excel is required for xlwings functionality
-   - Office 365 or standalone Excel both work
+### Step 4: Install Python Dependencies
 
-3. **Download/Extract Project Files**:
-   - Place all files in a folder (e.g., `C:\Users\YourName\Documents\python\`)
+1. Open **Command Prompt**:
+   - Press `Win + R`
+   - Type `cmd`
+   - Press Enter
 
-4. **Install Dependencies** (see step 2 below)
+2. Navigate to your script folder:
+   ```cmd
+   cd C:\Users\YourName\Documents\LargeDealReport
+   ```
+   (Replace with your actual folder path)
 
-5. **Configure** (see step 3 below)
+3. Install the required packages:
+   ```cmd
+   pip install -r requirements.txt
+   ```
 
-6. **Run**: Double-click `run_report.bat` or use Command Prompt
+4. Wait for installation to complete (may take 1-2 minutes)
 
-### 1. Clone or Download the Project
+### Step 5: Create Your Configuration File
 
-Ensure you have all the project files in your working directory.
+1. In your script folder, find `config.json.example`
+2. Make a copy of it and rename the copy to `config.json`
+   - Right-click `config.json.example` → Copy
+   - Right-click in empty space → Paste
+   - Right-click the copy → Rename → `config.json`
 
-**Windows:** Extract to a folder like `C:\Users\YourName\Documents\python\`
+3. Open `config.json` with Notepad:
+   - Right-click `config.json` → Open with → Notepad
 
-### 2. Install Dependencies
-
-Install the required Python packages:
-
-```bash
-pip install -r requirements.txt
-```
-
-**Dependencies:**
-- `openpyxl` - Excel file manipulation (reading/writing)
-- `pandas` - Data manipulation (optional, for advanced operations)
-- `xlwings` - Excel application automation for data refresh (macOS/Windows)
-- `pywin32` - Windows COM interface for Outlook integration (Windows only, optional)
-
-**Note:** 
-- `xlwings` requires Excel to be installed. If you don't have Excel or prefer not to use xlwings, the script will fall back to openpyxl (though data connections won't be automatically refreshed).
-- `pywin32` is required if you want to use Outlook for sending emails instead of SMTP (Windows only).
-
-### 3. Configure Email Settings
-
-Copy the example configuration file and fill in your details:
-
-**Windows:**
-```cmd
-copy config.json.example config.json
-```
-
-**macOS/Linux:**
-```bash
-cp config.json.example config.json
-```
-
-Edit `config.json` with your email credentials and settings:
+4. Edit the following settings:
 
 ```json
 {
   "email": {
-    "username": "your_email@gmail.com",
-    "password": "your_app_password",
-    "sender_email": "sender@example.com",
-    "imap_server": "imap.gmail.com",
-    "imap_port": 993,
-    "smtp_server": "smtp.gmail.com",
-    "smtp_port": 587
+    "incoming_subject": "large trade td",
+    "previous_report_subject": "large deal report - {date_long}",
+    "previous_report_folder": "Large Deal Reports",
+    "use_outlook": true,
+    "preview_before_send": true
   },
   "distribution_list": [
-    "recipient1@example.com",
-    "recipient2@example.com"
+    "first-distribution-list@yourcompany.com",
+    "second-distribution-list@yourcompany.com"
   ],
-  "sender_name": "Your Name",
-  "reports_directory": "./reports",
-  "temp_directory": "./temp",
-  "worksheet_1_name": "Sheet1",
-  "worksheet_2_name": "Sheet2",
-  "worksheet_3_name": "Sheet3",
-  "log_level": "INFO",
-  "log_file": null
+  "sender_name": "Your Actual Name",
+  "email_body": "Hi all,\n\nPlease find attached today's Large Deal Report.\n\nKind regards,\nYour Name"
 }
 ```
 
-#### Email Sending Options
+5. **What to change:**
+   - `previous_report_folder`: The Outlook folder where Large Deal Reports are stored
+   - `distribution_list`: Replace with your actual email addresses/distribution lists
+   - `sender_name`: Replace with your name
+   - `email_body`: Customise your email message (use `\n` for new lines)
 
-You have two options for sending emails:
+6. Save the file (Ctrl + S) and close Notepad
 
-**Option 1: Use Outlook (Recommended for Windows 11)**
+### Step 6: Create the Reports Folder
 
-Set `"use_outlook_for_sending": true` in your config. This will:
-- Use your Outlook application to send emails
-- No SMTP credentials needed
-- Works with Exchange/Office 365 accounts
-- Uses your logged-in Outlook account
+1. In your script folder, create a new folder called `reports`
+   - Right-click in empty space → New → Folder → name it `reports`
 
-**Option 2: Use SMTP (Traditional Method)**
+2. This folder will store the new reports you generate each day
 
-Set `"use_outlook_for_sending": false` (or omit it) and provide:
-- `username`: Your email address
-- `password`: App Password (for Gmail) or regular password
-- `smtp_server`: SMTP server address
-- `smtp_port`: SMTP server port
+3. **Note:** The script will automatically download the previous day's report from your email, so you don't need to manually copy anything here.
 
-#### Configuration Options
+4. **Important:** Your report workbook (that you send daily) must have these worksheet names:
+   - `large deal report` (where the daily data goes)
+   - `summary` (with your table that needs refreshing)
+   - `iphone compatible` (for the values-only copy)
 
-- **email.username**: Your email address for IMAP/SMTP (required if not using Outlook for sending)
-- **email.password**: App Password (for Gmail) or regular password (required if not using Outlook for sending)
-- **email.sender_email**: The email address that sends you the daily worksheet (required)
-- **email.imap_server**: IMAP server address (default: `imap.gmail.com`) - used for receiving emails
-- **email.imap_port**: IMAP server port (default: `993`) - used for receiving emails
-- **email.smtp_server**: SMTP server address (default: `smtp.gmail.com`) - only needed if not using Outlook
-- **email.smtp_port**: SMTP server port (default: `587`) - only needed if not using Outlook
-- **email.use_outlook_for_sending**: Set to `true` to use Outlook COM for sending (Windows only, recommended)
-- **distribution_list**: Array of recipient email addresses
-- **sender_name**: Name to appear in email signature
-- **reports_directory**: Directory where reports are stored (default: `./reports`)
-- **temp_directory**: Directory for temporary files (default: `./temp`)
-- **worksheet_1_name**: Name of worksheet 1 (default: `Sheet1`)
-- **worksheet_2_name**: Name of worksheet 2 (default: `Sheet2`)
-- **worksheet_3_name**: Name of worksheet 3 (default: `Sheet3`)
-- **log_level**: Logging level - `DEBUG`, `INFO`, `WARNING`, `ERROR` (default: `INFO`)
-- **log_file**: Path to log file (optional, set to `null` for console-only logging)
+### Step 7: Test the Setup
 
-### 4. Gmail App Password Setup
+1. Make sure **Outlook is open** and you're logged in
+2. Make sure you have:
+   - An email with subject "large trade td" in your **Inbox** (today's daily data)
+   - The previous day's report in your **"Large Deal Reports"** folder (e.g., "large deal report - 06 January 2026")
+3. Double-click `run_report.bat`
+4. Watch the Command Prompt window - it will show progress:
+   - Step 1: Downloading previous report from 'Large Deal Reports' folder...
+   - Step 2: Downloading daily worksheet from 'Large Trade TD' email...
+   - etc.
+5. When complete, Outlook will open with the email ready to send
+6. **Review the email** and click Send when ready
 
-If using Gmail, you **must** use an App Password instead of your regular password:
+### Step 8: Create a Desktop Shortcut (Optional)
 
-1. Go to your Google Account settings
-2. Enable 2-Step Verification (required for App Passwords)
-3. Go to Security → App Passwords
-4. Generate a new App Password for "Mail"
-5. Use this 16-character password in your `config.json`
+For easy daily access:
 
-**Important:** Never use your regular Gmail password. App Passwords are required for Gmail.
+1. Right-click on `run_report.bat`
+2. Click **"Create shortcut"**
+3. Drag the shortcut to your Desktop
+4. Rename it to "Large Deal Report" if you like
 
-### 5. Prepare Your Report Template
+Now you can double-click the shortcut each day to run the automation!
 
-1. Create your initial report with 3 worksheets:
-   - **Worksheet 1**: Will be overwritten with daily data from email
-   - **Worksheet 2**: Contains the main report with data connections/Power Query
-   - **Worksheet 3**: Smartphone-friendly version (will be auto-generated)
+---
 
-2. Save this template in the `./reports/` directory with the naming pattern:
-   ```
-   large deal report -YYYY-MM-DD.xlsx
-   ```
-   Example: `large deal report -2024-01-15.xlsx`
+## Daily Usage
 
-3. Ensure Worksheet 2 has your data connections configured (Power Query, external data, etc.)
+Once set up, your daily workflow is simple:
 
-### 6. Email Setup
+### Every Morning:
 
-The script expects to receive a daily email with an Excel attachment:
+1. ✅ Make sure Outlook is open
+2. ✅ Make sure you've received the "large trade td" email
+3. ✅ Double-click `run_report.bat` (or your desktop shortcut)
+4. ✅ Wait for the script to complete (~30 seconds)
+5. ✅ Review the email that opens in Outlook
+6. ✅ Click **Send**
 
-- The email must come from the address specified in `config.json` under `sender_email`
-- The attachment must be an Excel file (`.xlsx` or `.xls`)
-- The script will find the most recent email from today, or fall back to the most recent email if none from today
+**That's it!** The script handles everything else automatically.
 
-## Usage
+---
 
-### Basic Usage
+## Configuration Reference
 
-Run the automation script:
+### All Configuration Options
 
-**Windows:**
-```cmd
-python large_deal_report_automation.py
+**Email Settings (in `email` section):**
+| Setting | Description | Default |
+|---------|-------------|---------|
+| `incoming_subject` | Subject of the daily data email | `"large trade td"` |
+| `previous_report_subject` | Subject of previous report (use `{date_long}` for date) | `"large deal report"` |
+| `previous_report_folder` | Outlook folder containing previous reports | `"Large Deal Reports"` |
+| `use_outlook` | Use Outlook (set to `true` for Windows) | `true` |
+| `preview_before_send` | Show email preview instead of auto-sending | `true` |
+
+**Required Settings:**
+| Setting | Description |
+|---------|-------------|
+| `distribution_list` | Array of email addresses to send the report to |
+| `sender_name` | Your name for the email signature |
+
+**Optional Settings:**
+| Setting | Description | Default |
+|---------|-------------|---------|
+| `email_body` | Custom email body text (use `\n` for new lines) | Auto-generated |
+| `reports_directory` | Folder where new reports are saved | `"./reports"` |
+| `large_deal_report_sheet` | Name of the data input worksheet | `"large deal report"` |
+| `summary_sheet` | Name of the summary worksheet | `"summary"` |
+| `iphone_compatible_sheet` | Name of the iPhone output worksheet | `"iphone compatible"` |
+
+### Date Placeholders for incoming_subject
+
+You can include today's date in the email subject search using these placeholders:
+
+**Long Date Formats:**
+| Placeholder | Format | Example |
+|-------------|--------|---------|
+| `{date_long}` | DD Month YYYY | 07 January 2026 |
+| `{date_long_day}` | Day, DD Month YYYY | Tuesday, 07 January 2026 |
+
+**Short Date Formats:**
+| Placeholder | Format | Example |
+|-------------|--------|---------|
+| `{date}` | DD/MM/YYYY | 07/01/2026 |
+| `{date_dash}` | DD-MM-YYYY | 07-01-2026 |
+| `{date_dot}` | DD.MM.YYYY | 07.01.2026 |
+
+**Individual Components:**
+| Placeholder | Format | Example |
+|-------------|--------|---------|
+| `{day_name}` | Day name | Tuesday |
+| `{month_name}` | Month name | January |
+| `{dd}` | Day (with zero) | 07 |
+| `{d}` | Day (no zero) | 7 |
+| `{mm}` | Month | 01 |
+| `{yyyy}` | Year | 2026 |
+| `{yy}` | Short year | 26 |
+
+**Examples:**
+```json
+"incoming_subject": "large deal report - {date_long}"       // "large deal report - 07 January 2026"
+"incoming_subject": "large deal report - {date_long_day}"  // "large deal report - Tuesday, 07 January 2026"
+"incoming_subject": "large deal report - {date}"           // "large deal report - 07/01/2026"
+"incoming_subject": "large deal report - {date_dash}"      // "large deal report - 07-01-2026"
+"incoming_subject": "report {d} {month_name} {yyyy}"       // "report 7 January 2026"
 ```
 
-**macOS/Linux:**
-```bash
-python large_deal_report_automation.py
+### Example config.json
+
+```json
+{
+  "email": {
+    "incoming_subject": "large trade td",
+    "previous_report_subject": "large deal report - {date_long}",
+    "previous_report_folder": "Large Deal Reports",
+    "use_outlook": true,
+    "preview_before_send": true
+  },
+  "distribution_list": [
+    "trading-team@company.com",
+    "management@company.com"
+  ],
+  "sender_name": "John Smith",
+  "email_body": "Hi all,\n\nPlease find attached today's Large Deal Report.\n\nKind regards,\nJohn"
+}
 ```
 
-Or make it executable and run directly (macOS/Linux only):
+**Note:** Since you're using Outlook (`use_outlook: true`), you don't need any username, password, IMAP, or SMTP settings. The script uses your logged-in Outlook account directly.
 
-```bash
-chmod +x large_deal_report_automation.py
-./large_deal_report_automation.py
+---
+
+## What the Script Replaces
+
+### Before (Manual Process - ~10 minutes)
+1. Open email with "large trade td" subject
+2. Download the attachment
+3. Open your Large Deal Report workbook
+4. Copy the downloaded data
+5. Paste into 'large deal report' sheet at A1
+6. Go to 'summary' sheet, right-click table, refresh
+7. Select entire summary table
+8. Copy and go to 'iphone compatible' sheet
+9. Paste Special → Values only
+10. Save as "large deal report - {date}.xlsx"
+11. Open Outlook, create new email
+12. Add recipients, attach file, write message
+13. Review and send
+
+### After (Automated - ~30 seconds)
+1. **Double-click `run_report.bat`**
+2. Review the email preview that opens
+3. **Click Send**
+
+That's it! The script does steps 1-12 automatically.
+
+## File Structure
+
 ```
-
-### Spreadsheet consolidation (case-insensitive column match + grouped/merged output)
-
-If you have two spreadsheets with similar columns (e.g. one uses `SEDOL` and the other uses `Sedol` / `Fund Type`), you can extract a fixed set of columns, merge the rows into one sheet, sort by **ISSUE NAME**, and apply hierarchical “merge & centre” grouping (ISSUE NAME → SEDOL → ISIN → …):
-
-```bash
-python3 merge_and_align.py consolidate corporate_actions.xlsx accounts_list.xlsx merged_output.xlsx
-```
-
-By default the output columns (uppercase) are:
-
-- `ISSUE NAME`, `SEDOL`, `ISIN`, `ISSUE COUNTRY NAME`, `STRATEGY`, `SUB STRATEGY`, `FUND TYPE`, `FUND NAME`
-
-### One-Click Execution
-
-#### Windows
-
-**Option 1: Batch File (Recommended)**
-
-Double-click `run_report.bat` or run from Command Prompt:
-
-```cmd
-run_report.bat
-```
-
-**Option 2: Desktop Shortcut**
-
-1. Right-click `run_report.bat`
-2. Select "Create shortcut"
-3. Drag the shortcut to your desktop
-4. Right-click the shortcut → Properties
-5. Optionally set a keyboard shortcut in the "Shortcut key" field
-
-**Option 3: Task Scheduler (Automated Daily Run)**
-
-1. Open Task Scheduler
-2. Create Basic Task
-3. Set trigger (e.g., daily at 9:00 AM)
-4. Action: Start a program
-5. Program: `python.exe`
-6. Arguments: `"C:\path\to\large_deal_report_automation.py"`
-7. Start in: `C:\path\to\python\`
-
-**Option 4: PowerShell Script**
-
-Create a PowerShell script for more advanced execution:
-
-```powershell
-Set-Location "C:\path\to\python"
-python large_deal_report_automation.py
-```
-
-#### macOS
-
-**Option 1: Shell Alias**
-
-Add an alias to your shell profile (`~/.zshrc` or `~/.bash_profile`):
-
-```bash
-alias large-deal-report="cd /path/to/python && python large_deal_report_automation.py"
-```
-
-Then run:
-```bash
-large-deal-report
-```
-
-**Option 2: macOS Automator Quick Action**
-
-1. Open Automator
-2. Create a new "Quick Action"
-3. Add "Run Shell Script" action
-4. Set it to: `cd /path/to/python && python large_deal_report_automation.py`
-5. Save as "Generate Large Deal Report"
-6. Access from Services menu or assign a keyboard shortcut
-
-**Option 3: Shell Script**
-
-Use the provided `run_report.sh` script:
-
-```bash
-./run_report.sh
+your-folder/
+├── large_deal_report_automation.py  # Main script
+├── email_handler.py                  # Email handling
+├── excel_processor.py                # Excel manipulation
+├── config.json                       # Your configuration (create from example)
+├── config.json.example               # Configuration template
+├── requirements.txt                  # Python dependencies
+├── README.md                         # This file
+├── run_report.bat                    # Windows launcher (double-click this!)
+├── run_report.sh                     # macOS/Linux launcher
+├── reports/                          # Your report files
+│   └── large deal report - 06-01-2026.xlsx
+└── temp/                             # Temporary files (auto-cleaned)
 ```
 
 ## How It Works
 
 ### Step-by-Step Process
 
-1. **Find Latest Report**: Locates the most recent report template in the reports directory
-2. **Download Email Attachment**: Connects to email, finds the daily email, and downloads the Excel attachment
-3. **Update Worksheet 1**: Replaces all data in Worksheet 1 with data from the daily email attachment
-4. **Refresh Worksheet 2**: Attempts to refresh data connections using xlwings (if available) or preserves structure
-5. **Copy to Worksheet 3**: Creates a smartphone-friendly copy of Worksheet 2
-6. **Save Report**: Saves the updated report with current date: `large deal report -YYYY-MM-DD.xlsx`
-7. **Send Email**: Emails the report to all recipients in the distribution list
-8. **Cleanup**: Removes temporary downloaded files
+1. **Download Previous Report**: 
+   - Searches your **"Large Deal Reports"** folder in Outlook (configurable)
+   - Finds the report from the **previous working day**
+   - Downloads that Excel attachment to use as the base
 
-### Worksheet 2 Refresh
+2. **Download Daily Data**: 
+   - Searches your Inbox for the "large trade td" email
+   - Downloads the Excel attachment with today's trading data
 
-The script supports multiple methods for refreshing Worksheet 2:
+3. **Update 'large deal report' Sheet**:
+   - Opens the previous day's report
+   - Clears the 'large deal report' sheet
+   - Pastes today's data starting at cell A1
 
-**Option 1: xlwings (Recommended for Windows 11 with Excel)**
-- Automatically refreshes Power Query and external data connections
-- Requires Excel to be installed (works best on Windows)
-- Works headlessly (Excel runs in background)
-- **Windows 11**: xlwings integrates seamlessly with Excel on Windows
+4. **Refresh 'summary' Sheet**:
+   - Uses Excel automation (xlwings) to refresh tables/pivots
+   - Equivalent to right-clicking the table and selecting "Refresh"
 
-**Option 2: Fallback (openpyxl)**
-- Preserves worksheet structure
-- Does not refresh data connections
-- You may need to manually refresh in Excel or set Excel to auto-refresh on open
+5. **Copy to 'iphone compatible' Sheet**:
+   - Copies the summary table
+   - Pastes as **values only** (no formulas)
+   - Preserves formatting
 
-The script automatically tries xlwings first and falls back if it's not available or fails.
+6. **Save Report**:
+   - Saves as `large deal report - DD-MM-YYYY.xlsx`
+   - Stored in your `reports` directory
 
-## Email Provider Configuration
+7. **Email Preview**:
+   - Creates email with your distribution list
+   - Attaches the report
+   - **Opens in Outlook for your review** (doesn't auto-send)
+   - You click Send when ready
 
-### Gmail (Default)
-
-```json
-{
-  "imap_server": "imap.gmail.com",
-  "imap_port": 993,
-  "smtp_server": "smtp.gmail.com",
-  "smtp_port": 587
-}
-```
-
-**Requirements:**
-- App Password (not regular password)
-- IMAP enabled in Gmail settings
-
-### Outlook/Office 365
-
-```json
-{
-  "imap_server": "outlook.office365.com",
-  "imap_port": 993,
-  "smtp_server": "smtp.office365.com",
-  "smtp_port": 587
-}
-```
-
-### Yahoo Mail
-
-```json
-{
-  "imap_server": "imap.mail.yahoo.com",
-  "imap_port": 993,
-  "smtp_server": "smtp.mail.yahoo.com",
-  "smtp_port": 587
-}
-```
+### Working Days
+The script automatically handles weekends:
+- **Monday**: Downloads Friday's report
+- **Tuesday-Friday**: Downloads the previous day's report
 
 ## Troubleshooting
 
 ### "No existing reports found"
+- Make sure you have at least one report file in the `reports` folder
+- The filename should contain "large deal report"
 
-**Problem:** The script cannot find a report template.
+### "No emails found with subject containing 'large trade td'"
+- Check that you've received today's email
+- Verify the subject line matches (case-insensitive)
+- The script will also find the most recent matching email if none from today
 
-**Solutions:**
-- Ensure you have at least one report file in the `./reports/` directory
-- Check that the filename follows the pattern: `large deal report -YYYY-MM-DD.xlsx`
-- Verify the `reports_directory` path in `config.json` is correct
+### "Worksheet 'xxx' not found"
+- Check your workbook has the correct sheet names
+- Sheet names are case-insensitive but must match your config
+- Available sheets will be listed in the error message
 
-### "No emails found from [sender]"
+### "Outlook COM error"
+- Make sure Outlook is running and you're logged in
+- Try opening Outlook manually first
+- Ensure pywin32 is installed: `pip install pywin32`
 
-**Problem:** The script cannot find the daily email.
+### Table not refreshing properly
+- Ensure Excel is installed and licensed
+- The script uses Excel automation for refresh
+- If refresh fails, you may need to manually refresh after the script runs
 
-**Solutions:**
-- Verify the `sender_email` address in `config.json` matches exactly
-- Check that you've received the daily email
-- Try running the script later in the day if emails are sent in the morning
-- The script will also search for the most recent email if none from today are found
+### Email preview doesn't open
+- Make sure Outlook is your default email client
+- Check that pywin32 is installed correctly
+- Try running Outlook as administrator once
 
-### "Email authentication failed"
+## Advanced Options
 
-**Problem:** Cannot connect to email server.
-
-**Solutions:**
-- **For Gmail**: Make sure you're using an App Password, not your regular password
-- Verify your email credentials are correct
-- Check that IMAP is enabled in your email settings
-- Ensure 2-Step Verification is enabled (required for Gmail App Passwords)
-- Verify the IMAP/SMTP server addresses and ports are correct
-- **Alternative**: Use Outlook for sending by setting `"use_outlook_for_sending": true` (no SMTP credentials needed)
-
-### "Outlook COM requested but win32com not available"
-
-**Problem:** Trying to use Outlook but pywin32 is not installed.
-
-**Solutions:**
-- Install pywin32: `pip install pywin32`
-- Make sure you're on Windows (Outlook COM only works on Windows)
-- Ensure Outlook is installed on your system
-- If you don't want to use Outlook, set `"use_outlook_for_sending": false` and provide SMTP credentials
-
-### "Error sending email via Outlook"
-
-**Problem:** Outlook cannot send the email.
-
-**Solutions:**
-- Make sure Outlook is installed and you're logged into your account
-- Verify Outlook is not blocked by Windows security settings
-- Try opening Outlook manually first to ensure it's properly initialized
-- Check that your Outlook account has permission to send emails
-- Ensure the report file path is accessible
-
-### "IMAP error" or "SMTP error"
-
-**Problem:** Connection to email server fails.
-
-**Solutions:**
-- Check your internet connection
-- Verify firewall isn't blocking IMAP/SMTP ports
-- Try different ports (e.g., 465 for SMTP SSL)
-- Check if your email provider requires specific security settings
-
-### "Worksheet '[name]' not found"
-
-**Problem:** The script cannot find a required worksheet.
-
-**Solutions:**
-- Verify worksheet names in `config.json` match your Excel file exactly
-- Check that your report template has all three worksheets
-- Worksheet names are case-sensitive
-
-### "xlwings refresh failed"
-
-**Problem:** xlwings cannot refresh the worksheet.
-
-**Solutions:**
-- **Windows 11**: Ensure Excel is installed and properly licensed
-- Check that xlwings is installed: `pip install xlwings`
-- Verify Excel is not already open (may cause conflicts on Windows)
-- On Windows, ensure Excel is the default application for .xlsx files
-- Check that your data connections are properly configured in Excel
-- Try running Excel once manually to ensure it's properly initialized
-- The script will fall back to openpyxl if xlwings fails
-
-### "Error saving workbook"
-
-**Problem:** Cannot save the Excel file.
-
-**Solutions:**
-- Check that the reports directory exists and is writable
-- Ensure the file is not open in Excel
-- Verify you have sufficient disk space
-- Check file permissions on the reports directory
-
-### "Error sending email"
-
-**Problem:** Email cannot be sent.
-
-**Solutions:**
-- Verify SMTP server settings
-- Check that the distribution list contains valid email addresses
-- Ensure the report file exists and is not corrupted
-- Check SMTP authentication (App Password for Gmail)
-- Verify network connectivity
-
-### Logging Issues
-
-**Problem:** Need more detailed error information.
-
-**Solutions:**
-- Set `log_level` to `DEBUG` in `config.json` for verbose logging
-- Set `log_file` to a file path to save logs to a file
-- Check console output for error messages
-
-## File Structure
-
-```
-python/
-├── large_deal_report_automation.py  # Main automation script
-├── email_handler.py                  # Email retrieval and sending module
-├── excel_processor.py                # Excel manipulation module
-├── config.json                       # Your configuration (create from example)
-├── config.json.example              # Example configuration template
-├── requirements.txt                  # Python dependencies
-├── README.md                         # This file
-├── run_report.bat                    # Windows batch script for easy execution
-├── run_report.sh                     # macOS/Linux shell script
-├── reports/                          # Directory for report files
-│   └── large deal report -*.xlsx    # Report templates and generated reports
-└── temp/                            # Temporary files (auto-cleaned)
-    └── daily_sheet_*.xlsx           # Downloaded email attachments
-```
-
-### Windows Path Examples
-
-On Windows, you can use either forward slashes or backslashes in paths. The script handles both:
-
+### Auto-Send Without Preview
+If you want the email to send automatically without preview:
 ```json
 {
-  "reports_directory": "C:\\Users\\YourName\\Documents\\reports",
-  "temp_directory": "C:\\Users\\YourName\\Documents\\temp"
+  "email": {
+    "preview_before_send": false
+  }
 }
 ```
+**Warning:** This will send immediately without confirmation!
 
-Or use forward slashes (recommended):
-
+### Using IMAP Instead of Outlook
+For non-Outlook email systems (Gmail, etc.):
 ```json
 {
-  "reports_directory": "C:/Users/YourName/Documents/reports",
-  "temp_directory": "C:/Users/YourName/Documents/temp"
+  "email": {
+    "use_outlook": false,
+    "username": "your_email@gmail.com",
+    "password": "your_app_password",
+    "imap_server": "imap.gmail.com",
+    "imap_port": 993,
+    "smtp_server": "smtp.gmail.com",
+    "smtp_port": 587
+  }
 }
 ```
-
-## Security Best Practices
-
-1. **Never commit `config.json`** to version control
-   - Add it to `.gitignore`
-   - Only commit `config.json.example`
-
-2. **Use App Passwords** for email accounts when possible
-   - More secure than regular passwords
-   - Can be revoked individually
-
-3. **Consider Environment Variables** for sensitive data
-   - Store credentials in environment variables
-   - Modify the script to read from environment if needed
-
-4. **Restrict File Permissions**
-   - Set `config.json` permissions: `chmod 600 config.json`
-   - Protect your email credentials
-
-## Customization
+Note: IMAP mode doesn't support email preview - it sends directly.
 
 ### Custom Email Message
-
-Edit the `send_report_email` method in `email_handler.py`:
-
-```python
-body = (
-    f"Custom message here\n\n"
-    f"Report for {current_date}.\n\n"
-    f"Best regards,\n{sender_name}"
-)
+Set a custom email body in your config:
+```json
+{
+  "email_body": "Hi team,\n\nHere is today's Large Deal Report.\n\nPlease review and let me know if you have questions.\n\nBest regards,\nYour Name"
+}
 ```
 
-### Custom File Naming
-
-Edit the `run` method in `large_deal_report_automation.py`:
-
-```python
-filename = f"custom-name-{self.current_date}.xlsx"
-```
-
-### Custom Worksheet Formatting
-
-Enhance the `copy_worksheet_2_to_3` method in `excel_processor.py` to add custom formatting for mobile devices.
-
-### Custom Data Refresh Logic
-
-Modify the `refresh_worksheet_2` method in `excel_processor.py` to implement custom refresh logic for your specific data sources.
-
-## Logging
-
-The script includes comprehensive logging:
-
-- **Console Output**: Always shown
-- **File Logging**: Optional, set `log_file` in config
-- **Log Levels**: DEBUG, INFO, WARNING, ERROR
-
-Example log output:
-```
-2024-01-15 10:30:00 - __main__ - INFO - Large Deal Report Automation - Starting
-2024-01-15 10:30:01 - email_handler - INFO - Connecting to email server...
-2024-01-15 10:30:02 - excel_processor - INFO - Updating Worksheet 1...
-```
-
-## Windows 11 Specific Information
-
-### Excel Integration
-
-On Windows 11, xlwings works seamlessly with Microsoft Excel:
-
-- **No Additional Setup**: xlwings automatically finds and uses your installed Excel
-- **Background Operation**: Excel runs in the background (not visible) during refresh
-- **Power Query Support**: Automatically refreshes Power Query connections
-- **Data Connections**: Refreshes all external data connections in the workbook
-
-### Running on Windows
-
-**Recommended Method:**
-1. Double-click `run_report.bat` for one-click execution
-2. Or create a desktop shortcut to `run_report.bat`
-
-**Command Prompt:**
-```cmd
-cd C:\path\to\python
-python large_deal_report_automation.py
-```
-
-**PowerShell:**
-```powershell
-cd C:\path\to\python
-python large_deal_report_automation.py
-```
-
-### Windows Task Scheduler Setup
-
-To run the script automatically every day:
-
+### Scheduling (Run Automatically Every Day)
 1. Open **Task Scheduler** (search in Start menu)
 2. Click **Create Basic Task**
 3. Name: "Large Deal Report Automation"
 4. Trigger: **Daily** at your preferred time (e.g., 9:00 AM)
 5. Action: **Start a program**
-6. Program/script: `python.exe` (or full path: `C:\Python\python.exe`)
-7. Add arguments: `"C:\full\path\to\large_deal_report_automation.py"`
-8. Start in: `C:\full\path\to\python\`
-9. Check "Open the Properties dialog for this task when I click Finish"
-10. In Properties → General:
-    - Check "Run whether user is logged on or not" (optional)
-    - Check "Run with highest privileges" (if needed)
-11. In Properties → Conditions:
-    - Uncheck "Start the task only if the computer is on AC power" (if you want it to run on battery)
-12. Click OK and enter your Windows password if prompted
+6. Program: `python.exe`
+7. Arguments: `"C:\full\path\to\large_deal_report_automation.py"`
+8. Start in: `C:\full\path\to\folder`
 
-### Windows Path Configuration
+## Dependencies
 
-When configuring paths in `config.json` on Windows:
+- `openpyxl` - Excel file reading/writing
+- `xlwings` - Excel automation for table refresh
+- `pywin32` - Outlook integration (Windows only)
+- `pandas` - Data manipulation
 
-```json
-{
-  "reports_directory": "C:/Users/YourName/Documents/reports",
-  "temp_directory": "C:/Users/YourName/Documents/temp",
-  "log_file": "C:/Users/YourName/Documents/logs/report_automation.log"
-}
+All dependencies are listed in `requirements.txt` and installed with:
+```cmd
+pip install -r requirements.txt
 ```
 
-**Note:** Forward slashes work on Windows and are recommended for cross-platform compatibility.
+## Security Notes
 
-### Windows Firewall
+- Never commit `config.json` to version control (it may contain sensitive info)
+- The script uses your logged-in Outlook account - no passwords stored
+- Email preview mode lets you verify recipients before sending
 
-If you encounter email connection issues:
+## Support
 
-1. Windows Firewall may block Python's network access
-2. When Python first connects, Windows will prompt you to allow access
-3. Check "Private networks" and "Public networks" and click "Allow access"
-4. Alternatively, add Python to Windows Firewall exceptions manually
-
-## Support and Maintenance
-
-### Regular Maintenance
-
-1. **Clean Old Reports**: Periodically archive or delete old reports
-2. **Update Dependencies**: Keep Python packages updated (`pip install --upgrade -r requirements.txt`)
-3. **Test Email Connectivity**: Verify email settings periodically
-4. **Monitor Logs**: Check logs for recurring issues
-5. **Windows Updates**: Keep Excel and Python updated
-
-### Getting Help
-
-1. Check the error messages in console output
-2. Review the log file (if configured)
-3. Verify configuration file settings
-4. Test email server connectivity manually
-5. Check file permissions in reports and temp directories
-6. **Windows**: Check Windows Event Viewer for system-level errors
-
-## License
-
-This script is provided as-is for internal use.
+If you encounter issues:
+1. Check the console output for error messages
+2. Verify your configuration file is valid JSON
+3. Ensure all prerequisites are installed
+4. Check that Outlook is running and logged in
 
 ## Version History
 
-- **v1.0**: Initial implementation with modular design, xlwings support, and comprehensive error handling
+- **v2.0**: Complete rewrite for your specific workflow
+  - Search by email subject instead of sender
+  - Correct worksheet names (large deal report, summary, iphone compatible)
+  - Email preview mode (review before sending)
+  - DD-MM-YYYY date format
+  - Simplified configuration
