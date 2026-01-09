@@ -9,8 +9,11 @@ previous_report_subject = Large Deal Report - {date_long}
 previous_report_folder = Large Deal Reports
 preview_before_send = yes
 
-# Recipients (one email per line, add more as needed)
-distribution_list = your-email@company.com
+# Recipients
+# to_recipients = main distribution list (To: field)
+# cc_recipients = additional recipients (CC: field) - separate multiple with commas
+to_recipients = your-distribution-list@company.com
+cc_recipients = cc-list-1@company.com, cc-list-2@company.com
 
 # Your Details
 sender_name = Your Name

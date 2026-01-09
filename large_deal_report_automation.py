@@ -170,12 +170,17 @@ class LargeDealReportAutomation:
             sender_name = self.config.get('sender_name', 'Your Name')
             email_body = self.config.get('email_body', None)
             
+            # Get recipients - support both new and legacy config
+            to_recipients = self.config.get('to_recipients', self.config.get('distribution_list', []))
+            cc_recipients = self.config.get('cc_recipients', [])
+            
             self.email_handler.send_report_email(
                 new_report_path,
-                self.config['distribution_list'],
+                to_recipients,
                 sender_name,
                 self.current_date_display,
-                email_body
+                email_body,
+                cc_recipients
             )
             
             # Step 9: Cleanup

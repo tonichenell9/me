@@ -501,10 +501,11 @@ class EmailHandler:
     def send_report_email(
         self, 
         report_path: Path, 
-        distribution_list: List[str], 
+        to_recipients: List[str], 
         sender_name: str, 
         current_date: str,
-        email_body: str = None
+        email_body: str = None,
+        cc_recipients: List[str] = None
     ) -> None:
         """
         Send or preview the report via Outlook.
@@ -514,10 +515,11 @@ class EmailHandler:
         
         Args:
             report_path: Path to the report file to attach
-            distribution_list: List of recipient email addresses
+            to_recipients: List of recipient email addresses (To: field)
             sender_name: Name of the sender
             current_date: Current date string (DD/MM/YYYY format for display)
             email_body: Optional custom email body text
+            cc_recipients: Optional list of CC recipients
             
         Raises:
             Exception: If email sending fails
@@ -551,10 +553,17 @@ class EmailHandler:
                     f"Kind regards,\n{sender_name}"
                 )
             
-            # Add recipients (could be distribution lists or individual emails)
-            self.logger.info(f"Adding {len(distribution_list)} recipient(s)...")
-            for recipient in distribution_list:
+            # Add To: recipients
+            self.logger.info(f"Adding {len(to_recipients)} To: recipient(s)...")
+            for recipient in to_recipients:
                 mail.Recipients.Add(recipient)
+            
+            # Add CC: recipients
+            if cc_recipients:
+                self.logger.info(f"Adding {len(cc_recipients)} CC: recipient(s)...")
+                for cc in cc_recipients:
+                    cc_recipient = mail.Recipients.Add(cc)
+                    cc_recipient.Type = 2  # 2 = CC
             
             # Attach report - use absolute path for Windows
             absolute_report_path = str(report_path.absolute())

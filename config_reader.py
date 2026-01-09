@@ -127,12 +127,24 @@ def save_config_value(config: dict, key: str, value):
     if key in email_keys:
         config['email'][key] = value
     
-    # Distribution list (can be comma-separated or single)
+    # Distribution list (legacy - can be comma-separated or single)
     elif key == 'distribution_list':
         if isinstance(value, str):
             # Split by comma
             emails = [e.strip() for e in value.split(',')]
-            config['distribution_list'] = [e for e in emails if e]  # Remove empty
+            config['distribution_list'] = [e for e in emails if e]
+    
+    # To recipients
+    elif key == 'to_recipients':
+        if isinstance(value, str):
+            emails = [e.strip() for e in value.split(',')]
+            config['to_recipients'] = [e for e in emails if e]
+    
+    # CC recipients
+    elif key == 'cc_recipients':
+        if isinstance(value, str):
+            emails = [e.strip() for e in value.split(',')]
+            config['cc_recipients'] = [e for e in emails if e]
     
     # Other settings
     else:
@@ -144,8 +156,9 @@ def validate_config(config: dict):
     
     errors = []
     
-    if not config.get('distribution_list'):
-        errors.append("distribution_list is required")
+    # Check for to_recipients or legacy distribution_list
+    if not config.get('to_recipients') and not config.get('distribution_list'):
+        errors.append("to_recipients is required")
     
     if not config.get('sender_name'):
         errors.append("sender_name is required")
@@ -156,6 +169,10 @@ def validate_config(config: dict):
             print(f"  - {error}")
         print("\nPlease edit config.txt and fill in the required values.")
         sys.exit(1)
+    
+    # If using legacy distribution_list, copy to to_recipients
+    if not config.get('to_recipients') and config.get('distribution_list'):
+        config['to_recipients'] = config['distribution_list']
 
 
 if __name__ == "__main__":
