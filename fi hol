@@ -1,130 +1,71 @@
-pip install requests beautifulsoup4 openpyxl
-python fi_fund_holdings_downloader.py --urls <paste ZIP url here>
-
 """
-FI.se Quarterly Fund Holdings Downloader & Consolidator
-Downloads ZIP files from https://www.fi.se/en/our-registers/quarterly-fund-holdings/
-Extracts XML files, parses fund holding data, and writes all holdings to one Excel sheet.
+FI.se Fund Holdings - Local ZIP to Excel
+Point this script at a ZIP file you have already downloaded from:
+https://www.fi.se/en/our-registers/quarterly-fund-holdings/
+
+Usage:
+    python fi_local_zip_to_excel.py "C:\Downloads\fondsparande_2024_Q1.zip"
+
+Output:
+    fi_fund_holdings_combined.xlsx  (created in the same folder as the ZIP)
 """
 
 import re
+import sys
 import zipfile
-import time
 import logging
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-import requests
-from bs4 import BeautifulSoup
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
-
-BASE_URL = "https://www.fi.se"
-PAGE_URL = "https://www.fi.se/en/our-registers/quarterly-fund-holdings/"
-
-DOWNLOAD_DIR = Path("fi_fund_holdings_downloads")
-OUTPUT_FILE  = Path("fi_fund_holdings_combined.xlsx")
-
-KEEP_ZIPS     = False
-MAX_RETRIES   = 4
-RETRY_BACKOFF = [2, 4, 8, 16]  # seconds
-
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)s  %(message)s")
 log = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# HTTP helpers
-# ---------------------------------------------------------------------------
-
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept-Language": "en-US,en;q=0.9",
-}
-
-
-def get_with_retry(url: str, stream: bool = False) -> requests.Response:
-    for attempt, wait in enumerate(RETRY_BACKOFF, start=1):
-        try:
-            resp = requests.get(url, headers=HEADERS, stream=stream, timeout=60)
-            resp.raise_for_status()
-            return resp
-        except requests.RequestException as exc:
-            if attempt == MAX_RETRIES:
-                raise
-            log.warning("Request failed (%s), retrying in %ss...", exc, wait)
-            time.sleep(wait)
 
 # ---------------------------------------------------------------------------
-# Step 1 - Discover ZIP links on the FI.se page
+# Extract all XML files from ZIP
 # ---------------------------------------------------------------------------
 
-def discover_zip_links() -> list[dict]:
-    log.info("Fetching fund holdings index page...")
-    resp = get_with_retry(PAGE_URL)
-    soup = BeautifulSoup(resp.text, "html.parser")
-
-    links = []
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        if href.lower().endswith(".zip"):
-            full_url = href if href.startswith("http") else BASE_URL + href
-            label = a.get_text(strip=True) or Path(href).name
-            links.append({"label": label, "url": full_url})
-
-    if not links:
-        log.warning("No ZIP links found. Try --urls to supply URLs directly.")
-    else:
-        log.info("Found %d ZIP link(s).", len(links))
-    return links
-
-# ---------------------------------------------------------------------------
-# Step 2 - Download & extract ZIPs (handles folders inside ZIP)
-# ---------------------------------------------------------------------------
-
-def download_and_extract(zip_info: dict, dest_dir: Path) -> list[Path]:
-    url      = zip_info["url"]
-    zip_name = Path(url).name
-    zip_path = dest_dir / zip_name
-
-    log.info("Downloading %s ...", zip_name)
-    resp = get_with_retry(url, stream=True)
-    with open(zip_path, "wb") as fh:
-        for chunk in resp.iter_content(chunk_size=1 << 16):
-            fh.write(chunk)
-
-    log.info("Extracting %s ...", zip_name)
+def extract_xml_files(zip_path: Path, dest_dir: Path) -> list[Path]:
+    log.info("Opening ZIP: %s", zip_path)
     xml_paths = []
     with zipfile.ZipFile(zip_path) as zf:
-        # namelist() returns all members including files inside subfolders
-        for member in zf.namelist():
-            if member.lower().endswith(".xml"):
-                extracted = zf.extract(member, dest_dir)
-                xml_paths.append(Path(extracted))
-
-    if not KEEP_ZIPS:
-        zip_path.unlink()
-
-    log.info("  -> %d XML file(s) extracted (across all subfolders).", len(xml_paths))
+        members = [m for m in zf.namelist() if m.lower().endswith(".xml")]
+        log.info("Found %d XML file(s) inside the ZIP.", len(members))
+        for member in members:
+            extracted = zf.extract(member, dest_dir)
+            xml_paths.append(Path(extracted))
     return xml_paths
 
+
 # ---------------------------------------------------------------------------
-# Step 3 - Parse XML files
+# Parse one XML file into rows
 # ---------------------------------------------------------------------------
 
 def _strip_ns(tag: str) -> str:
     return tag.split("}")[-1] if "}" in tag else tag
 
 
-def parse_xml(xml_path: Path, quarter_label: str) -> list[dict]:
+def find_text(parent, *local_names):
+    lower_names = {n.lower() for n in local_names}
+    for child in parent:
+        if _strip_ns(child.tag).lower() in lower_names:
+            return (child.text or "").strip()
+    return ""
+
+
+def find_child(parent, *local_names):
+    lower_names = {n.lower() for n in local_names}
+    for child in parent:
+        if _strip_ns(child.tag).lower() in lower_names:
+            return child
+    return None
+
+
+def parse_xml(xml_path: Path, quarter_label: str, extract_dir: Path) -> list[dict]:
     try:
         tree = ET.parse(xml_path)
     except ET.ParseError as exc:
@@ -134,19 +75,11 @@ def parse_xml(xml_path: Path, quarter_label: str) -> list[dict]:
     root = tree.getroot()
     rows = []
 
-    def find_text(parent, *local_names):
-        lower_names = {n.lower() for n in local_names}
-        for child in parent:
-            if _strip_ns(child.tag).lower() in lower_names:
-                return (child.text or "").strip()
-        return ""
-
-    def find_child(parent, *local_names):
-        lower_names = {n.lower() for n in local_names}
-        for child in parent:
-            if _strip_ns(child.tag).lower() in lower_names:
-                return child
-        return None
+    # Capture subfolder name (often the fund name or ID)
+    try:
+        folder_name = xml_path.relative_to(extract_dir).parts[0] if len(xml_path.relative_to(extract_dir).parts) > 1 else ""
+    except ValueError:
+        folder_name = ""
 
     for fund_el in root.iter():
         if _strip_ns(fund_el.tag).lower() not in ("fund", "fondrapport", "fonder"):
@@ -158,9 +91,6 @@ def parse_xml(xml_path: Path, quarter_label: str) -> list[dict]:
         fund_company = find_text(fund_el, "fundcompany", "fondbolag", "company", "bolag")
         total_nav    = find_text(fund_el, "totalnav", "nav", "totalvarde", "totalvalue")
         currency     = find_text(fund_el, "currency", "valuta")
-
-        # Subfolder name captured in case it carries useful context
-        folder_name  = xml_path.parent.name if xml_path.parent != DOWNLOAD_DIR else ""
 
         holdings_el = find_child(fund_el, "holdings", "innehav", "holdinglist")
         if holdings_el is None:
@@ -208,8 +138,9 @@ def parse_xml(xml_path: Path, quarter_label: str) -> list[dict]:
 
     return rows
 
+
 # ---------------------------------------------------------------------------
-# Step 4 - Write combined Excel file
+# Write Excel
 # ---------------------------------------------------------------------------
 
 COLUMNS = [
@@ -226,7 +157,7 @@ ALT_ROW_FILL = PatternFill("solid", fgColor="D6E4F0")
 
 
 def write_excel(all_rows: list[dict], output_path: Path) -> None:
-    log.info("Writing %d rows to %s ...", len(all_rows), output_path)
+    log.info("Writing %d rows to Excel...", len(all_rows))
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Fund Holdings"
@@ -255,61 +186,64 @@ def write_excel(all_rows: list[dict], output_path: Path) -> None:
 
     ws.auto_filter.ref = ws.dimensions
     wb.save(output_path)
-    log.info("Saved -> %s", output_path.resolve())
+    log.info("Done! Saved to: %s", output_path.resolve())
+
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
-def infer_quarter_label(zip_url: str, label: str) -> str:
-    combined = f"{zip_url} {label}"
-    m = re.search(r"(20\d{2})[\s_\-]*(q|quarter|kvartal)\s*(\d)", combined, re.I)
+def infer_quarter_label(zip_path: Path) -> str:
+    name = zip_path.stem
+    m = re.search(r"(20\d{2})[\s_\-]*(q|quarter|kvartal)\s*(\d)", name, re.I)
     if m:
         return f"{m.group(1)}-Q{m.group(3)}"
-    m = re.search(r"(q|quarter|kvartal)\s*(\d)[\s_\-]*(20\d{2})", combined, re.I)
+    m = re.search(r"(q|quarter|kvartal)\s*(\d)[\s_\-]*(20\d{2})", name, re.I)
     if m:
         return f"{m.group(3)}-Q{m.group(2)}"
-    return Path(zip_url).stem
+    return name  # fallback: use the filename stem as label
 
 
-def main(manual_urls: list[str] | None = None):
-    DOWNLOAD_DIR.mkdir(exist_ok=True)
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: python fi_local_zip_to_excel.py <path_to_zip_file>")
+        print("Example: python fi_local_zip_to_excel.py C:\\Downloads\\fondsparande_2024_Q1.zip")
+        sys.exit(1)
 
-    zip_list = (
-        [{"label": Path(u).stem, "url": u} for u in manual_urls]
-        if manual_urls else discover_zip_links()
-    )
+    zip_path = Path(sys.argv[1])
+    if not zip_path.exists():
+        log.error("File not found: %s", zip_path)
+        sys.exit(1)
+    if not zipfile.is_zipfile(zip_path):
+        log.error("Not a valid ZIP file: %s", zip_path)
+        sys.exit(1)
 
-    if not zip_list:
-        log.error("No ZIP files to process. Exiting.")
-        return
+    quarter_label = infer_quarter_label(zip_path)
+    log.info("Quarter label: %s", quarter_label)
 
-    all_rows: list[dict] = []
-    for zip_info in zip_list:
-        quarter_label = infer_quarter_label(zip_info["url"], zip_info["label"])
-        log.info("--- Processing: %s (%s) ---", zip_info["label"], quarter_label)
-        try:
-            xml_paths = download_and_extract(zip_info, DOWNLOAD_DIR)
-        except Exception as exc:
-            log.error("Failed to download/extract %s: %s", zip_info["url"], exc)
-            continue
-        for xml_path in sorted(xml_paths):
-            rows = parse_xml(xml_path, quarter_label)
-            all_rows.extend(rows)
-            log.info("  Parsed %s -> %d holding rows", xml_path.name, len(rows))
+    # Extract next to the ZIP file
+    extract_dir = zip_path.parent / (zip_path.stem + "_extracted")
+    extract_dir.mkdir(exist_ok=True)
+
+    xml_paths = extract_xml_files(zip_path, extract_dir)
+    if not xml_paths:
+        log.error("No XML files found inside the ZIP.")
+        sys.exit(1)
+
+    all_rows = []
+    for xml_path in sorted(xml_paths):
+        rows = parse_xml(xml_path, quarter_label, extract_dir)
+        all_rows.extend(rows)
+        log.info("  %s -> %d holding rows", xml_path.name, len(rows))
 
     if not all_rows:
-        log.warning("No data rows were parsed. Check the XML structure.")
-        return
+        log.warning("No data rows parsed. The XML structure may not match expected tags.")
+        log.warning("Check the XML files in: %s", extract_dir)
+        sys.exit(1)
 
-    write_excel(all_rows, OUTPUT_FILE)
-    log.info("Done. Total rows: %d", len(all_rows))
+    output_path = zip_path.parent / "fi_fund_holdings_combined.xlsx"
+    write_excel(all_rows, output_path)
 
 
 if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser(description="FI.se fund holdings downloader & consolidator")
-    parser.add_argument("--urls", nargs="*", metavar="URL",
-        help="Manually supply ZIP URLs instead of scraping the FI page.")
-    args = parser.parse_args()
-    main(manual_urls=args.urls or None)
+    main()
