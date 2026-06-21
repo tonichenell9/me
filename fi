@@ -1,0 +1,228 @@
+"""
+FI.se Fund Holdings - Local ZIP to Excel
+Point this script at a ZIP file you have already downloaded from:
+https://www.fi.se/en/our-registers/quarterly-fund-holdings/
+
+Run in PyCharm: just click the green Run button after setting ZIP_FILE below.
+"""
+
+import re
+import sys
+import zipfile
+import logging
+from pathlib import Path
+from xml.etree import ElementTree as ET
+
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.utils import get_column_letter
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)s  %(message)s")
+log = logging.getLogger(__name__)
+
+# ===========================================================================
+# EDIT THIS LINE - put the path to your downloaded ZIP file here
+# ===========================================================================
+ZIP_FILE = r"C:\Users\YourName\Downloads\fondsparande_2024_Q1.zip"
+# ===========================================================================
+
+
+def extract_xml_files(zip_path: Path, dest_dir: Path) -> list[Path]:
+    log.info("Opening ZIP: %s", zip_path)
+    xml_paths = []
+    with zipfile.ZipFile(zip_path) as zf:
+        members = [m for m in zf.namelist() if m.lower().endswith(".xml")]
+        log.info("Found %d XML file(s) inside the ZIP.", len(members))
+        for member in members:
+            extracted = zf.extract(member, dest_dir)
+            xml_paths.append(Path(extracted))
+    return xml_paths
+
+
+def _strip_ns(tag: str) -> str:
+    return tag.split("}")[-1] if "}" in tag else tag
+
+
+def find_text(parent, *local_names):
+    lower_names = {n.lower() for n in local_names}
+    for child in parent:
+        if _strip_ns(child.tag).lower() in lower_names:
+            return (child.text or "").strip()
+    return ""
+
+
+def find_child(parent, *local_names):
+    lower_names = {n.lower() for n in local_names}
+    for child in parent:
+        if _strip_ns(child.tag).lower() in lower_names:
+            return child
+    return None
+
+
+def parse_xml(xml_path: Path, quarter_label: str, extract_dir: Path) -> list[dict]:
+    try:
+        tree = ET.parse(xml_path)
+    except ET.ParseError as exc:
+        log.warning("Could not parse %s: %s", xml_path.name, exc)
+        return []
+
+    root = tree.getroot()
+    rows = []
+
+    try:
+        folder_name = xml_path.relative_to(extract_dir).parts[0] if len(xml_path.relative_to(extract_dir).parts) > 1 else ""
+    except ValueError:
+        folder_name = ""
+
+    for fund_el in root.iter():
+        if _strip_ns(fund_el.tag).lower() not in ("fund", "fondrapport", "fonder"):
+            continue
+
+        fund_isin    = find_text(fund_el, "isin", "fundisin", "fondlei", "lei")
+        fund_name    = find_text(fund_el, "fundname", "fondnamn", "name", "namn")
+        report_date  = find_text(fund_el, "reportdate", "rapportdatum", "date", "datum")
+        fund_company = find_text(fund_el, "fundcompany", "fondbolag", "company", "bolag")
+        total_nav    = find_text(fund_el, "totalnav", "nav", "totalvarde", "totalvalue")
+        currency     = find_text(fund_el, "currency", "valuta")
+
+        holdings_el = find_child(fund_el, "holdings", "innehav", "holdinglist")
+        if holdings_el is None:
+            holdings_el = fund_el
+
+        holding_count = 0
+        for holding_el in holdings_el:
+            if _strip_ns(holding_el.tag).lower() not in (
+                "holding", "innehav", "holdingitem", "innehavspost"
+            ):
+                continue
+
+            holding_count += 1
+            rows.append({
+                "Quarter":            quarter_label,
+                "Folder":             folder_name,
+                "Source File":        xml_path.name,
+                "Fund ISIN / LEI":    fund_isin,
+                "Fund Name":          fund_name,
+                "Fund Company":       fund_company,
+                "Report Date":        report_date,
+                "Fund Currency":      currency,
+                "Total NAV":          total_nav,
+                "Holding ISIN":       find_text(holding_el, "isin", "holdingsin", "innehavsisin"),
+                "Holding Name":       find_text(holding_el, "holdingname", "innehavsnamn", "name", "namn", "instrumentnamn"),
+                "Instrument Type":    find_text(holding_el, "instrumenttype", "instrumenttyp", "assettype", "tillgangstyp"),
+                "Country":            find_text(holding_el, "country", "land", "countryofissue"),
+                "Currency":           find_text(holding_el, "currency", "valuta", "instrumentvaluta"),
+                "Quantity":           find_text(holding_el, "quantity", "antal", "nominellt", "nominal"),
+                "Market Value (SEK)": find_text(holding_el, "marketvalue", "marknadsvarde", "value", "varde"),
+                "% of NAV":           find_text(holding_el, "percentofnav", "andelav nav", "navandel", "weight"),
+            })
+
+        if holding_count == 0 and fund_name:
+            rows.append({
+                "Quarter": quarter_label, "Folder": folder_name,
+                "Source File": xml_path.name, "Fund ISIN / LEI": fund_isin,
+                "Fund Name": fund_name, "Fund Company": fund_company,
+                "Report Date": report_date, "Fund Currency": currency,
+                "Total NAV": total_nav, "Holding ISIN": "",
+                "Holding Name": "(no holdings found in XML)",
+                "Instrument Type": "", "Country": "", "Currency": "",
+                "Quantity": "", "Market Value (SEK)": "", "% of NAV": "",
+            })
+
+    return rows
+
+
+COLUMNS = [
+    "Quarter", "Folder", "Source File",
+    "Fund ISIN / LEI", "Fund Name", "Fund Company",
+    "Report Date", "Fund Currency", "Total NAV",
+    "Holding ISIN", "Holding Name", "Instrument Type",
+    "Country", "Currency", "Quantity", "Market Value (SEK)", "% of NAV",
+]
+
+HEADER_FILL  = PatternFill("solid", fgColor="1F4E79")
+HEADER_FONT  = Font(bold=True, color="FFFFFF", size=10)
+ALT_ROW_FILL = PatternFill("solid", fgColor="D6E4F0")
+
+
+def write_excel(all_rows: list[dict], output_path: Path) -> None:
+    log.info("Writing %d rows to Excel...", len(all_rows))
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Fund Holdings"
+
+    ws.append(COLUMNS)
+    for col_idx in range(1, len(COLUMNS) + 1):
+        cell = ws.cell(row=1, column=col_idx)
+        cell.fill = HEADER_FILL
+        cell.font = HEADER_FONT
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    ws.row_dimensions[1].height = 30
+    ws.freeze_panes = "A2"
+
+    for row_num, row_data in enumerate(all_rows, start=2):
+        ws.append([row_data.get(col, "") for col in COLUMNS])
+        if row_num % 2 == 0:
+            for col_idx in range(1, len(COLUMNS) + 1):
+                ws.cell(row=row_num, column=col_idx).fill = ALT_ROW_FILL
+
+    for col_idx, col_name in enumerate(COLUMNS, start=1):
+        max_len = max(
+            len(col_name),
+            *(len(str(row_data.get(col_name, "") or "")) for row_data in all_rows)
+        ) if all_rows else len(col_name)
+        ws.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 2, 60)
+
+    ws.auto_filter.ref = ws.dimensions
+    wb.save(output_path)
+    log.info("Done! Saved to: %s", output_path.resolve())
+
+
+def infer_quarter_label(zip_path: Path) -> str:
+    name = zip_path.stem
+    m = re.search(r"(20\d{2})[\s_\-]*(q|quarter|kvartal)\s*(\d)", name, re.I)
+    if m:
+        return f"{m.group(1)}-Q{m.group(3)}"
+    m = re.search(r"(q|quarter|kvartal)\s*(\d)[\s_\-]*(20\d{2})", name, re.I)
+    if m:
+        return f"{m.group(3)}-Q{m.group(2)}"
+    return name
+
+
+def main():
+    zip_path = Path(ZIP_FILE)
+
+    if not zip_path.exists():
+        log.error("File not found: %s", zip_path)
+        sys.exit(1)
+    if not zipfile.is_zipfile(zip_path):
+        log.error("Not a valid ZIP file: %s", zip_path)
+        sys.exit(1)
+
+    quarter_label = infer_quarter_label(zip_path)
+    log.info("Quarter label: %s", quarter_label)
+
+    extract_dir = zip_path.parent / (zip_path.stem + "_extracted")
+    extract_dir.mkdir(exist_ok=True)
+
+    xml_paths = extract_xml_files(zip_path, extract_dir)
+    if not xml_paths:
+        log.error("No XML files found inside the ZIP.")
+        sys.exit(1)
+
+    all_rows = []
+    for xml_path in sorted(xml_paths):
+        rows = parse_xml(xml_path, quarter_label, extract_dir)
+        all_rows.extend(rows)
+        log.info("  %s -> %d holding rows", xml_path.name, len(rows))
+
+    if not all_rows:
+        log.warning("No data rows parsed. Check the XML files in: %s", extract_dir)
+        sys.exit(1)
+
+    output_path = zip_path.parent / "fi_fund_holdings_combined.xlsx"
+    write_excel(all_rows, output_path)
+
+
+if __name__ == "__main__":
+    main()
