@@ -1,22 +1,23 @@
 """
-FI.se Fund Holdings - Local ZIP to Excel
-Point this script at a ZIP file you have already downloaded from:
-https://www.fi.se/en/our-registers/quarterly-fund-holdings/
+FI.se Fund Holdings - Auto-download latest ZIP + convert to Excel
+Scrapes https://www.fi.se/en/our-registers/quarterly-fund-holdings/
+Downloads the latest quarterly ZIP, extracts all XML files, and writes
+all holdings into one combined Excel sheet.
 
-Usage:
-    python fi_local_zip_to_excel.py "C:\Downloads\fondsparande_2024_Q1.zip"
-
-Output:
-    fi_fund_holdings_combined.xlsx  (created in the same folder as the ZIP)
+Run in PyCharm: just click the green Run button.
+If auto-download fails, set MANUAL_ZIP_PATH to a local ZIP file instead.
 """
 
 import re
 import sys
 import zipfile
 import logging
+import time
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+import requests
+from bs4 import BeautifulSoup
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
@@ -24,48 +25,122 @@ from openpyxl.utils import get_column_letter
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)s  %(message)s")
 log = logging.getLogger(__name__)
 
+# ===========================================================================
+# OPTION A: Leave as "" to auto-download the latest ZIP from FI.se
+# OPTION B: Set to a local ZIP path if you downloaded it manually
+#   e.g.  MANUAL_ZIP_PATH = r"C:\Downloads\Fondinnehav 2026Q1 2026-06-10 14.48.zip"
+# ===========================================================================
+MANUAL_ZIP_PATH = ""
+# ===========================================================================
 
-# ---------------------------------------------------------------------------
-# Extract all XML files from ZIP
-# ---------------------------------------------------------------------------
+PAGE_URL     = "https://www.fi.se/en/our-registers/quarterly-fund-holdings/"
+BASE_URL     = "https://www.fi.se"
+DOWNLOAD_DIR = Path("fi_downloads")
+OUTPUT_FILE  = Path("fi_fund_holdings_combined.xlsx")
+
+NS = "http://schemas.fi.se/publika/vardepappersfonder/20200331"
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+}
+
+
+def get_with_retry(url: str, stream: bool = False) -> requests.Response:
+    for attempt, wait in enumerate([2, 4, 8, 16], start=1):
+        try:
+            resp = requests.get(url, headers=HEADERS, stream=stream, timeout=60)
+            resp.raise_for_status()
+            return resp
+        except requests.RequestException as exc:
+            if attempt == 4:
+                raise
+            log.warning("Request failed (%s), retrying in %ss...", exc, wait)
+            time.sleep(wait)
+
+
+def parse_quarter(filename: str):
+    m = re.search(r"(\d{4})Q(\d)", filename, re.I)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    return (0, 0)
+
+
+def find_latest_zip_url() -> tuple[str, str]:
+    log.info("Fetching FI.se fund holdings page...")
+    resp = get_with_retry(PAGE_URL)
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    zips = []
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        if href.lower().endswith(".zip"):
+            label = a.get_text(strip=True) or Path(href).name
+            full_url = href if href.startswith("http") else BASE_URL + href
+            zips.append((label, full_url))
+
+    if not zips:
+        raise RuntimeError(
+            "No ZIP links found on the FI.se page. "
+            "Set MANUAL_ZIP_PATH to your downloaded ZIP file instead."
+        )
+
+    zips.sort(key=lambda x: parse_quarter(x[0]), reverse=True)
+    latest_label, latest_url = zips[0]
+    log.info("Latest ZIP found: %s", latest_label)
+    return latest_url, latest_label
+
+
+def download_zip(url: str, label: str) -> Path:
+    DOWNLOAD_DIR.mkdir(exist_ok=True)
+    safe_name = re.sub(r'[<>:"/\\|?*]', "_", label)
+    if not safe_name.lower().endswith(".zip"):
+        safe_name += ".zip"
+    dest = DOWNLOAD_DIR / safe_name
+
+    if dest.exists():
+        log.info("ZIP already downloaded: %s", dest)
+        return dest
+
+    log.info("Downloading %s ...", label)
+    resp = get_with_retry(url, stream=True)
+    with open(dest, "wb") as fh:
+        for chunk in resp.iter_content(chunk_size=1 << 16):
+            fh.write(chunk)
+    log.info("Saved to: %s", dest)
+    return dest
+
 
 def extract_xml_files(zip_path: Path, dest_dir: Path) -> list[Path]:
-    log.info("Opening ZIP: %s", zip_path)
+    log.info("Extracting XML files from ZIP...")
     xml_paths = []
     with zipfile.ZipFile(zip_path) as zf:
         members = [m for m in zf.namelist() if m.lower().endswith(".xml")]
-        log.info("Found %d XML file(s) inside the ZIP.", len(members))
+        log.info("Found %d XML file(s).", len(members))
         for member in members:
             extracted = zf.extract(member, dest_dir)
             xml_paths.append(Path(extracted))
     return xml_paths
 
 
-# ---------------------------------------------------------------------------
-# Parse one XML file into rows
-# ---------------------------------------------------------------------------
-
-def _strip_ns(tag: str) -> str:
-    return tag.split("}")[-1] if "}" in tag else tag
+def t(tag):
+    return f"{{{NS}}}{tag}"
 
 
-def find_text(parent, *local_names):
-    lower_names = {n.lower() for n in local_names}
-    for child in parent:
-        if _strip_ns(child.tag).lower() in lower_names:
-            return (child.text or "").strip()
-    return ""
+def get_text(element, tag, default=""):
+    if element is None:
+        return default
+    child = element.find(t(tag))
+    if child is not None and child.text:
+        return child.text.strip()
+    return default
 
 
-def find_child(parent, *local_names):
-    lower_names = {n.lower() for n in local_names}
-    for child in parent:
-        if _strip_ns(child.tag).lower() in lower_names:
-            return child
-    return None
-
-
-def parse_xml(xml_path: Path, quarter_label: str, extract_dir: Path) -> list[dict]:
+def parse_xml(xml_path: Path, extract_dir: Path) -> list[dict]:
     try:
         tree = ET.parse(xml_path)
     except ET.ParseError as exc:
@@ -73,82 +148,66 @@ def parse_xml(xml_path: Path, quarter_label: str, extract_dir: Path) -> list[dic
         return []
 
     root = tree.getroot()
-    rows = []
 
-    # Capture subfolder name (often the fund name or ID)
     try:
         folder_name = xml_path.relative_to(extract_dir).parts[0] if len(xml_path.relative_to(extract_dir).parts) > 1 else ""
     except ValueError:
         folder_name = ""
 
-    for fund_el in root.iter():
-        if _strip_ns(fund_el.tag).lower() not in ("fund", "fondrapport", "fonder"):
+    rapport      = root.find(t("Rapportinformation"))
+    quarter      = get_text(rapport, "Kvartalsslut")
+    bolag        = root.find(t("Bolagsinformation"))
+    company_name = get_text(bolag, "Fondbolag_namn")
+    company_lei  = get_text(bolag, "Fondbolag_LEI-kod")
+
+    rows = []
+    for fond_info in root.findall(t("Fondinformation")):
+        fund_isin = get_text(fond_info, "Fond_ISIN-kod")
+        fund_name = get_text(fond_info, "Fond_namn")
+        fund_nav  = get_text(fond_info, "Fondförmögenhet")
+
+        if not fund_name:
             continue
 
-        fund_isin    = find_text(fund_el, "isin", "fundisin", "fondlei", "lei")
-        fund_name    = find_text(fund_el, "fundname", "fondnamn", "name", "namn")
-        report_date  = find_text(fund_el, "reportdate", "rapportdatum", "date", "datum")
-        fund_company = find_text(fund_el, "fundcompany", "fondbolag", "company", "bolag")
-        total_nav    = find_text(fund_el, "totalnav", "nav", "totalvarde", "totalvalue")
-        currency     = find_text(fund_el, "currency", "valuta")
+        instruments = fond_info.find(t("FinansiellaInstrument"))
+        if instruments is None:
+            continue
 
-        holdings_el = find_child(fund_el, "holdings", "innehav", "holdinglist")
-        if holdings_el is None:
-            holdings_el = fund_el
-
-        holding_count = 0
-        for holding_el in holdings_el:
-            if _strip_ns(holding_el.tag).lower() not in (
-                "holding", "innehav", "holdingitem", "innehavspost"
-            ):
-                continue
-
-            holding_count += 1
+        for instrument in instruments.findall(t("FinansielltInstrument")):
+            bransch = instrument.find(t("Bransch"))
             rows.append({
-                "Quarter":            quarter_label,
-                "Folder":             folder_name,
-                "Source File":        xml_path.name,
-                "Fund ISIN / LEI":    fund_isin,
-                "Fund Name":          fund_name,
-                "Fund Company":       fund_company,
-                "Report Date":        report_date,
-                "Fund Currency":      currency,
-                "Total NAV":          total_nav,
-                "Holding ISIN":       find_text(holding_el, "isin", "holdingsin", "innehavsisin"),
-                "Holding Name":       find_text(holding_el, "holdingname", "innehavsnamn", "name", "namn", "instrumentnamn"),
-                "Instrument Type":    find_text(holding_el, "instrumenttype", "instrumenttyp", "assettype", "tillgangstyp"),
-                "Country":            find_text(holding_el, "country", "land", "countryofissue"),
-                "Currency":           find_text(holding_el, "currency", "valuta", "instrumentvaluta"),
-                "Quantity":           find_text(holding_el, "quantity", "antal", "nominellt", "nominal"),
-                "Market Value (SEK)": find_text(holding_el, "marketvalue", "marknadsvarde", "value", "varde"),
-                "% of NAV":           find_text(holding_el, "percentofnav", "andelav nav", "navandel", "weight"),
-            })
-
-        if holding_count == 0 and fund_name:
-            rows.append({
-                "Quarter": quarter_label, "Folder": folder_name,
-                "Source File": xml_path.name, "Fund ISIN / LEI": fund_isin,
-                "Fund Name": fund_name, "Fund Company": fund_company,
-                "Report Date": report_date, "Fund Currency": currency,
-                "Total NAV": total_nav, "Holding ISIN": "",
-                "Holding Name": "(no holdings found in XML)",
-                "Instrument Type": "", "Country": "", "Currency": "",
-                "Quantity": "", "Market Value (SEK)": "", "% of NAV": "",
+                "Kvartalsslut":                         quarter,
+                "Folder":                               folder_name,
+                "Source File":                          xml_path.name,
+                "Fondbolag_namn":                       company_name,
+                "Fondbolag_LEI-kod":                    company_lei,
+                "Fond_ISIN-kod":                        fund_isin,
+                "Fond_namn":                            fund_name,
+                "Fondförmögenhet":                      fund_nav,
+                "Tillgångsslag_enligt_LVF_5_kap":       get_text(instrument, "Tillgångsslag_enligt_LVF_5_kap"),
+                "Instrumentnamn":                       get_text(instrument, "Instrumentnamn"),
+                "ISIN-kod_instrument":                  get_text(instrument, "ISIN-kod_instrument"),
+                "Landkod_Emittent":                     get_text(instrument, "Landkod_Emittent"),
+                "Valuta":                               get_text(instrument, "Valuta"),
+                "Antal":                                get_text(instrument, "Antal"),
+                "Nominellt_belopp":                     get_text(instrument, "Nominellt_belopp"),
+                "Marknadsvärde_instrument":             get_text(instrument, "Marknadsvärde_instrument"),
+                "Andel_av_fondförmögenhet_instrument":  get_text(instrument, "Andel_av_fondförmögenhet_instrument"),
+                "Branschkod_instrument":                get_text(bransch, "Branschkod_instrument") if bransch is not None else "",
+                "Bransch_namn_instrument":              get_text(bransch, "Bransch_namn_instrument") if bransch is not None else "",
             })
 
     return rows
 
 
-# ---------------------------------------------------------------------------
-# Write Excel
-# ---------------------------------------------------------------------------
-
 COLUMNS = [
-    "Quarter", "Folder", "Source File",
-    "Fund ISIN / LEI", "Fund Name", "Fund Company",
-    "Report Date", "Fund Currency", "Total NAV",
-    "Holding ISIN", "Holding Name", "Instrument Type",
-    "Country", "Currency", "Quantity", "Market Value (SEK)", "% of NAV",
+    "Kvartalsslut", "Folder", "Source File",
+    "Fondbolag_namn", "Fondbolag_LEI-kod",
+    "Fond_ISIN-kod", "Fond_namn", "Fondförmögenhet",
+    "Tillgångsslag_enligt_LVF_5_kap", "Instrumentnamn", "ISIN-kod_instrument",
+    "Landkod_Emittent", "Valuta", "Antal", "Nominellt_belopp",
+    "Marknadsvärde_instrument", "Andel_av_fondförmögenhet_instrument",
+    "Branschkod_instrument", "Bransch_namn_instrument",
 ]
 
 HEADER_FILL  = PatternFill("solid", fgColor="1F4E79")
@@ -189,40 +248,23 @@ def write_excel(all_rows: list[dict], output_path: Path) -> None:
     log.info("Done! Saved to: %s", output_path.resolve())
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-
-def infer_quarter_label(zip_path: Path) -> str:
-    name = zip_path.stem
-    m = re.search(r"(20\d{2})[\s_\-]*(q|quarter|kvartal)\s*(\d)", name, re.I)
-    if m:
-        return f"{m.group(1)}-Q{m.group(3)}"
-    m = re.search(r"(q|quarter|kvartal)\s*(\d)[\s_\-]*(20\d{2})", name, re.I)
-    if m:
-        return f"{m.group(3)}-Q{m.group(2)}"
-    return name  # fallback: use the filename stem as label
-
-
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: python fi_local_zip_to_excel.py <path_to_zip_file>")
-        print("Example: python fi_local_zip_to_excel.py C:\\Downloads\\fondsparande_2024_Q1.zip")
-        sys.exit(1)
+    if MANUAL_ZIP_PATH:
+        zip_path = Path(MANUAL_ZIP_PATH)
+        if not zip_path.exists():
+            log.error("File not found: %s", zip_path)
+            sys.exit(1)
+        extract_dir = zip_path.parent / (zip_path.stem + "_extracted")
+    else:
+        try:
+            url, label = find_latest_zip_url()
+            zip_path = download_zip(url, label)
+        except Exception as exc:
+            log.error("Auto-download failed: %s", exc)
+            log.error("Set MANUAL_ZIP_PATH to your downloaded ZIP file and try again.")
+            sys.exit(1)
+        extract_dir = DOWNLOAD_DIR / (zip_path.stem + "_extracted")
 
-    zip_path = Path(sys.argv[1])
-    if not zip_path.exists():
-        log.error("File not found: %s", zip_path)
-        sys.exit(1)
-    if not zipfile.is_zipfile(zip_path):
-        log.error("Not a valid ZIP file: %s", zip_path)
-        sys.exit(1)
-
-    quarter_label = infer_quarter_label(zip_path)
-    log.info("Quarter label: %s", quarter_label)
-
-    # Extract next to the ZIP file
-    extract_dir = zip_path.parent / (zip_path.stem + "_extracted")
     extract_dir.mkdir(exist_ok=True)
 
     xml_paths = extract_xml_files(zip_path, extract_dir)
@@ -232,17 +274,15 @@ def main():
 
     all_rows = []
     for xml_path in sorted(xml_paths):
-        rows = parse_xml(xml_path, quarter_label, extract_dir)
+        rows = parse_xml(xml_path, extract_dir)
         all_rows.extend(rows)
         log.info("  %s -> %d holding rows", xml_path.name, len(rows))
 
     if not all_rows:
-        log.warning("No data rows parsed. The XML structure may not match expected tags.")
-        log.warning("Check the XML files in: %s", extract_dir)
+        log.warning("No data rows parsed. Check the XML files in: %s", extract_dir)
         sys.exit(1)
 
-    output_path = zip_path.parent / "fi_fund_holdings_combined.xlsx"
-    write_excel(all_rows, output_path)
+    write_excel(all_rows, OUTPUT_FILE)
 
 
 if __name__ == "__main__":
