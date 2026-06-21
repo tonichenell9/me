@@ -1,0 +1,223 @@
+"""
+FI.se Fund Holdings - Local ZIP to Excel
+Point this script at a ZIP file you have already downloaded from:
+https://www.fi.se/en/our-registers/quarterly-fund-holdings/
+
+Run in PyCharm: just click the green Run button after setting ZIP_FILE below.
+"""
+
+import re
+import sys
+import zipfile
+import logging
+from pathlib import Path
+from xml.etree import ElementTree as ET
+
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.utils import get_column_letter
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)s  %(message)s")
+log = logging.getLogger(__name__)
+
+# ===========================================================================
+# EDIT THIS LINE - put the path to your downloaded ZIP file here
+# ===========================================================================
+ZIP_FILE = r"C:\Users\YourName\Downloads\fondsparande_2024_Q1.zip"
+# ===========================================================================
+
+NS = "http://schemas.fi.se/publika/vardepappersfonder/20200331"
+
+
+def t(tag):
+    return f"{{{NS}}}{tag}"
+
+
+def get_text(element, tag, default=""):
+    if element is None:
+        return default
+    child = element.find(t(tag))
+    if child is not None and child.text:
+        return child.text.strip()
+    return default
+
+
+def extract_xml_files(zip_path: Path, dest_dir: Path) -> list[Path]:
+    log.info("Opening ZIP: %s", zip_path)
+    xml_paths = []
+    with zipfile.ZipFile(zip_path) as zf:
+        members = [m for m in zf.namelist() if m.lower().endswith(".xml")]
+        log.info("Found %d XML file(s) inside the ZIP.", len(members))
+        for member in members:
+            extracted = zf.extract(member, dest_dir)
+            xml_paths.append(Path(extracted))
+    return xml_paths
+
+
+def parse_xml(xml_path: Path, extract_dir: Path) -> list[dict]:
+    try:
+        tree = ET.parse(xml_path)
+    except ET.ParseError as exc:
+        log.warning("Could not parse %s: %s", xml_path.name, exc)
+        return []
+
+    root = tree.getroot()
+
+    try:
+        folder_name = xml_path.relative_to(extract_dir).parts[0] if len(xml_path.relative_to(extract_dir).parts) > 1 else ""
+    except ValueError:
+        folder_name = ""
+
+    rapport = root.find(t("Rapportinformation"))
+    quarter = get_text(rapport, "Kvartalsslut")
+
+    bolag = root.find(t("Bolagsinformation"))
+    company_name = get_text(bolag, "Fondbolag_namn")
+    company_lei  = get_text(bolag, "Fondbolag_LEI-kod")
+
+    rows = []
+
+    for fond_info in root.findall(t("Fondinformation")):
+        fund_isin = get_text(fond_info, "Fond_ISIN-kod")
+        fund_name = get_text(fond_info, "Fond_namn")
+        fund_nav  = get_text(fond_info, "Fondförmögenhet")
+
+        if not fund_name:
+            continue
+
+        instruments = fond_info.find(t("FinansiellaInstrument"))
+        if instruments is None:
+            continue
+
+        for instrument in instruments.findall(t("FinansielltInstrument")):
+            bransch = instrument.find(t("Bransch"))
+            rows.append({
+                "Quarter":            quarter,
+                "Folder":             folder_name,
+                "Source File":        xml_path.name,
+                "Fund Company":       company_name,
+                "Fund Company LEI":   company_lei,
+                "Fund ISIN":          fund_isin,
+                "Fund Name":          fund_name,
+                "Fund NAV (SEK)":     fund_nav,
+                "Instrument Type":    get_text(instrument, "Tillgångsslag_enligt_LVF_5_kap"),
+                "Holding Name":       get_text(instrument, "Instrumentnamn"),
+                "Holding ISIN":       get_text(instrument, "ISIN-kod_instrument"),
+                "Country":            get_text(instrument, "Landkod_Emittent"),
+                "Currency":           get_text(instrument, "Valuta"),
+                "Quantity":           get_text(instrument, "Antal"),
+                "Nominal Amount":     get_text(instrument, "Nominellt_belopp"),
+                "Market Value (SEK)": get_text(instrument, "Marknadsvärde_instrument"),
+                "% of NAV":           get_text(instrument, "Andel_av_fondförmögenhet_instrument"),
+                "Sector Code":        get_text(bransch, "Branschkod_instrument") if bransch is not None else "",
+                "Sector Name":        get_text(bransch, "Bransch_namn_instrument") if bransch is not None else "",
+            })
+
+    return rows
+
+
+COLUMNS = [
+    "Quarter",
+    "Folder",
+    "Source File",
+    "Fund Company",
+    "Fund Company LEI",
+    "Fund ISIN",
+    "Fund Name",
+    "Fund NAV (SEK)",
+    "Instrument Type",
+    "Holding Name",
+    "Holding ISIN",
+    "Country",
+    "Currency",
+    "Quantity",
+    "Nominal Amount",
+    "Market Value (SEK)",
+    "% of NAV",
+    "Sector Code",
+    "Sector Name",
+]
+
+HEADER_FILL  = PatternFill("solid", fgColor="1F4E79")
+HEADER_FONT  = Font(bold=True, color="FFFFFF", size=10)
+ALT_ROW_FILL = PatternFill("solid", fgColor="D6E4F0")
+
+
+def write_excel(all_rows: list[dict], output_path: Path) -> None:
+    log.info("Writing %d rows to Excel...", len(all_rows))
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Fund Holdings"
+
+    ws.append(COLUMNS)
+    for col_idx in range(1, len(COLUMNS) + 1):
+        cell = ws.cell(row=1, column=col_idx)
+        cell.fill = HEADER_FILL
+        cell.font = HEADER_FONT
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    ws.row_dimensions[1].height = 30
+    ws.freeze_panes = "A2"
+
+    for row_num, row_data in enumerate(all_rows, start=2):
+        ws.append([row_data.get(col, "") for col in COLUMNS])
+        if row_num % 2 == 0:
+            for col_idx in range(1, len(COLUMNS) + 1):
+                ws.cell(row=row_num, column=col_idx).fill = ALT_ROW_FILL
+
+    for col_idx, col_name in enumerate(COLUMNS, start=1):
+        max_len = max(
+            len(col_name),
+            *(len(str(row_data.get(col_name, "") or "")) for row_data in all_rows)
+        ) if all_rows else len(col_name)
+        ws.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 2, 60)
+
+    ws.auto_filter.ref = ws.dimensions
+    wb.save(output_path)
+    log.info("Done! Saved to: %s", output_path.resolve())
+
+
+def infer_quarter_label(zip_path: Path) -> str:
+    name = zip_path.stem
+    m = re.search(r"(20\d{2})[\s_\-]*(q|quarter|kvartal)\s*(\d)", name, re.I)
+    if m:
+        return f"{m.group(1)}-Q{m.group(3)}"
+    m = re.search(r"(q|quarter|kvartal)\s*(\d)[\s_\-]*(20\d{2})", name, re.I)
+    if m:
+        return f"{m.group(3)}-Q{m.group(2)}"
+    return name
+
+
+def main():
+    zip_path = Path(ZIP_FILE)
+
+    if not zip_path.exists():
+        log.error("File not found: %s", zip_path)
+        sys.exit(1)
+    if not zipfile.is_zipfile(zip_path):
+        log.error("Not a valid ZIP file: %s", zip_path)
+        sys.exit(1)
+
+    extract_dir = zip_path.parent / (zip_path.stem + "_extracted")
+    extract_dir.mkdir(exist_ok=True)
+
+    xml_paths = extract_xml_files(zip_path, extract_dir)
+    if not xml_paths:
+        log.error("No XML files found inside the ZIP.")
+        sys.exit(1)
+
+    all_rows = []
+    for xml_path in sorted(xml_paths):
+        rows = parse_xml(xml_path, extract_dir)
+        all_rows.extend(rows)
+        log.info("  %s -> %d holding rows", xml_path.name, len(rows))
+
+    if not all_rows:
+        log.warning("No data rows parsed. Check the XML files in: %s", extract_dir)
+        sys.exit(1)
+
+    output_path = zip_path.parent / "fi_fund_holdings_combined.xlsx"
+    write_excel(all_rows, output_path)
+
+
+if __name__ == "__main__":
+    main()
